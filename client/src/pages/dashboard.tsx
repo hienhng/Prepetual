@@ -137,7 +137,8 @@ function StatCard({
   icon: Icon, 
   gradient,
   isActive = true,
-  onClick
+  onClick,
+  compact = false,
 }: { 
   label: string; 
   value: number | string; 
@@ -145,6 +146,7 @@ function StatCard({
   gradient: string;
   isActive?: boolean;
   onClick?: () => void;
+  compact?: boolean;
 }) {
   const colorMap: Record<string, { bg: string; text: string; iconBg: string; ring: string }> = {
     "bg-gradient-to-br from-blue-500 to-blue-600": {
@@ -172,10 +174,10 @@ function StatCard({
 
   return (
     <motion.div
-      whileHover={{ y: -3, transition: { duration: 0.2, ease: "easeOut" } }}
+      whileHover={{ y: -2, transition: { duration: 0.2, ease: "easeOut" } }}
       whileTap={onClick ? { scale: 0.98 } : {}}
       onClick={onClick}
-      className={onClick ? "cursor-pointer" : ""}
+      className={`h-full ${onClick ? "cursor-pointer" : ""}`}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={onClick ? (e) => {
@@ -186,24 +188,30 @@ function StatCard({
       } : undefined}
       aria-label={onClick ? `${label}: ${value}` : undefined}
     >
-      <div className={`relative rounded-2xl p-5 ring-1 transition-all duration-300 h-full ${
+      <div className={`relative rounded-2xl ring-1 transition-all duration-300 h-full ${
+        compact ? "p-3 lg:p-4" : "p-5"
+      } ${
         inactive
           ? "bg-muted/50 ring-border"
           : `${colors.bg} ${colors.ring} hover:ring-2`
       }`}>
-        <div className="flex items-center gap-4">
-          <div className={`shrink-0 flex items-center justify-center w-11 h-11 rounded-xl transition-colors ${
-            inactive
-              ? "bg-muted"
-              : colors.iconBg
+        <div className={`flex items-center ${compact ? "gap-3" : "gap-4"}`}>
+          <div className={`shrink-0 flex items-center justify-center rounded-xl transition-colors ${
+            compact ? "w-9 h-9 lg:w-10 lg:h-10" : "w-11 h-11"
+          } ${
+            inactive ? "bg-muted" : colors.iconBg
           }`}>
-            <Icon className={`h-5 w-5 ${inactive ? "text-muted-foreground" : colors.text}`} />
+            <Icon className={`${compact ? "h-4 w-4 lg:h-5 lg:w-5" : "h-5 w-5"} ${inactive ? "text-muted-foreground" : colors.text}`} />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className={`font-semibold uppercase tracking-wider text-muted-foreground ${
+              compact ? "text-[10px]" : "text-[11px]"
+            }`}>
               {label}
             </p>
-            <p className={`text-2xl font-bold tracking-tight mt-0.5 ${
+            <p className={`font-bold tracking-tight mt-0.5 ${
+              compact ? "text-lg lg:text-xl" : "text-2xl"
+            } ${
               inactive ? "text-muted-foreground" : "text-foreground"
             }`}>
               {value}
@@ -883,13 +891,42 @@ export default function Dashboard() {
           </div>
         </motion.section>
 
-        {/* Stats + Continue Learning - Side by Side */}
+        {/* Stats + Continue Learning - Dynamic Grid */}
         {hasQuizzes && (
           <motion.section variants={itemVariants}>
-            <div className={`grid gap-5 ${hasSavedQuizzes ? 'lg:grid-cols-[1fr_280px]' : ''}`}>
-              {/* Continue Learning (left/top) */}
-              {hasSavedQuizzes && (
-                <div className="relative group/carousel min-w-0">
+            {hasSavedQuizzes ? (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                {/* Stats row on top (mobile) / right column (desktop) — rendered first in DOM for mobile priority */}
+                <div className="lg:col-span-4 lg:order-2">
+                  <div className="grid grid-cols-3 lg:grid-cols-1 gap-3 lg:h-full">
+                    <StatCard
+                      label="CREATED"
+                      value={totalQuizzes}
+                      icon={() => <FontAwesomeIcon icon={faFileLines} className="h-5 w-5" />}
+                      gradient="bg-gradient-to-br from-blue-500 to-blue-600"
+                      compact
+                    />
+                    <StatCard
+                      label="QUESTIONS"
+                      value={totalQuestions}
+                      icon={() => <FontAwesomeIcon icon={faMessage} className="h-5 w-5" />}
+                      gradient="bg-gradient-to-br from-violet-500 to-violet-600"
+                      compact
+                    />
+                    <StatCard
+                      label="ACCURACY"
+                      value={userStats?.totalAttempts ? `${userStats.averageAccuracy}%` : "-"}
+                      icon={() => <FontAwesomeIcon icon={faChartSimple} className="h-5 w-5" />}
+                      gradient="bg-gradient-to-br from-emerald-500 to-emerald-600"
+                      isActive={(userStats?.totalAttempts ?? 0) > 0}
+                      onClick={() => setLocation("/progress")}
+                      compact
+                    />
+                  </div>
+                </div>
+
+                {/* Continue Learning (left/main) */}
+                <div className="lg:col-span-8 lg:order-1 relative group/carousel min-w-0">
                   <div className="flex items-center justify-between mb-3">
                     <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
                       <Play className="w-4 h-4 text-primary fill-primary" />
@@ -982,10 +1019,9 @@ export default function Dashboard() {
                     )}
                   </div>
                 </div>
-              )}
-
-              {/* Stats (right/bottom) */}
-              <div className={hasSavedQuizzes ? 'flex flex-col gap-3' : 'grid grid-cols-3 gap-4'}>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-4">
                 <StatCard
                   label="CREATED"
                   value={totalQuizzes}
@@ -1007,7 +1043,7 @@ export default function Dashboard() {
                   onClick={() => setLocation("/progress")}
                 />
               </div>
-            </div>
+            )}
           </motion.section>
         )}
 
