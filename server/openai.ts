@@ -354,6 +354,113 @@ function hasNumericOptions(options: string[]): boolean {
   return numericCount >= 2;
 }
 
+async function codeSelectNumericAnswersFromGeneration(mcQuestions: any[], logPrefix: string = "[CODE-SELECT]"): Promise<void> {
+  if (mcQuestions.length === 0) return;
+
+  const questionsNeedingExplanation: Array<{ q: any; correctIndex: number }> = [];
+
+  for (const q of mcQuestions) {
+    if (!q.correctAnswer || !Array.isArray(q.options) || q.options.length === 0) continue;
+
+    const options = q.options.map((o: any) => String(o).trim());
+    const aiComputedValue = q.computedValue ? String(q.computedValue).trim() : "";
+
+    const parsedOptions = options.map((opt: string) => ({
+      text: opt,
+      parsed: parseNumericWithUnit(opt),
+    }));
+    const numericOpts = parsedOptions.filter((o: any) => o.parsed !== null);
+
+    if (numericOpts.length < 2) {
+      console.log(`${logPrefix} Skipping "${String(q.question).substring(0, 50)}..." — not enough parseable numeric options`);
+      continue;
+    }
+
+    console.log(`${logPrefix} Options with SI values for "${String(q.question).substring(0, 60)}...":`);
+    for (const opt of parsedOptions) {
+      if (opt.parsed) {
+        console.log(`${logPrefix}   "${opt.text}" → ${opt.parsed.value} ${opt.parsed.unit} → SI: ${opt.parsed.siValue} ${opt.parsed.siUnit}`);
+      } else {
+        console.log(`${logPrefix}   "${opt.text}" → (not parseable)`);
+      }
+    }
+
+    let targetParsed = aiComputedValue ? parseNumericWithUnit(aiComputedValue) : null;
+
+    if (!targetParsed) {
+      const currentAnswer = String(q.correctAnswer).trim();
+      targetParsed = parseNumericWithUnit(currentAnswer);
+      if (targetParsed) {
+        console.log(`${logPrefix} No parseable computedValue "${aiComputedValue}", using AI's selected answer "${currentAnswer}" → SI: ${targetParsed.siValue} ${targetParsed.siUnit}`);
+      }
+    } else {
+      console.log(`${logPrefix} AI computedValue: "${aiComputedValue}" → ${targetParsed.value} ${targetParsed.unit} → SI: ${targetParsed.siValue} ${targetParsed.siUnit}`);
+    }
+
+    if (!targetParsed) {
+      console.warn(`${logPrefix} WARNING: Could not parse any numeric target for "${String(q.question).substring(0, 60)}..." — keeping AI selection`);
+      continue;
+    }
+
+    const TOLERANCE = 1e-4;
+    let bestMatch: string | null = null;
+    let bestDiff = Infinity;
+
+    for (const opt of numericOpts) {
+      if (opt.parsed!.siUnit !== targetParsed.siUnit) continue;
+      const diff = Math.abs(opt.parsed!.siValue - targetParsed.siValue);
+      const relativeDiff = targetParsed.siValue !== 0 ? diff / Math.abs(targetParsed.siValue) : diff;
+
+      if (relativeDiff < TOLERANCE && relativeDiff < bestDiff) {
+        bestDiff = relativeDiff;
+        bestMatch = opt.text;
+      }
+    }
+
+    if (bestMatch) {
+      const currentAnswer = String(q.correctAnswer).trim();
+      if (bestMatch !== currentAnswer) {
+        console.log(`${logPrefix} CODE SELECTED: "${bestMatch}" (overriding AI's "${currentAnswer}") for: "${String(q.question).substring(0, 60)}..."`);
+      } else {
+        console.log(`${logPrefix} CODE CONFIRMED: "${bestMatch}" matches AI's selection`);
+      }
+      q.correctAnswer = bestMatch;
+      const idx = options.indexOf(bestMatch);
+      if (idx !== -1) {
+        questionsNeedingExplanation.push({ q, correctIndex: idx });
+      }
+    } else {
+      console.warn(`${logPrefix} WARNING: No SI match found among options for target ${targetParsed.siValue} ${targetParsed.siUnit} — keeping AI selection "${q.correctAnswer}"`);
+    }
+  }
+
+  if (questionsNeedingExplanation.length > 0) {
+    console.log(`${logPrefix} Generating explanations for ${questionsNeedingExplanation.length} code-selected numeric answers...`);
+    const explanationLimit = pLimit(3);
+    await Promise.all(
+      questionsNeedingExplanation.map(({ q, correctIndex }) =>
+        explanationLimit(async () => {
+          const result = await generateExplanationForAnswer(
+            String(q.question),
+            q.options.map((o: any) => String(o)),
+            String(q.correctAnswer),
+            correctIndex,
+          );
+          if (result) {
+            q.explanation = result.explanation;
+            q.wrongAnswerExplanations = result.wrongAnswerExplanations;
+            console.log(`${logPrefix} Explanation generated for code-selected answer "${q.correctAnswer}"`);
+          }
+        })
+      )
+    );
+  }
+
+  for (const q of mcQuestions) {
+    delete q.computedValue;
+  }
+}
+
 async function codeFirstNumericPipeline(mcQuestions: any[], logPrefix: string = "[CODE-FIRST]"): Promise<void> {
   if (mcQuestions.length === 0) return;
 
@@ -832,9 +939,10 @@ ANSWER LENGTH BALANCING (EXTREMELY IMPORTANT - FOLLOW STRICTLY):
 QUESTION GENERATION FLOW (MANDATORY - follow this exact order for each question):
 - Step 1: Write the question text
 - Step 2: Generate the answer options
-- Step 3: DECIDE which option is the correct answer and set "correctAnswer" — this is your commitment, do NOT change it later
-- Step 4: All other options are now wrong. Write "explanation" to explain why correctAnswer is right (for math/science, show the full calculation that arrives at the correctAnswer value)
-- Step 5: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake or misconception that would lead someone to pick it
+- Step 3: For math/science/numeric questions: SOLVE the problem yourself step-by-step to get the raw numeric result with units (e.g., "0.05kg", "3600s", "9.8m/s²"). Put this in "computedValue".
+- Step 4: DECIDE which option is the correct answer and set "correctAnswerIndex"
+- Step 5: Write "explanation" to explain why correctAnswer is right (for math/science, show the full calculation)
+- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake
 
 SELF-CONSISTENCY CHECK: The explanation MUST support the correctAnswer you already chose. If you realize during explanation that a different option is actually correct, go back and fix the correctAnswer BEFORE writing the explanation.
 
@@ -847,8 +955,9 @@ OUTPUT FORMAT (JSON):
       "type": "multiple_choice" | "true_false" | "short_answer",
       "question": "The question text",
       "options": ["Option with similar length", "Option with similar length", "Option with similar length", "Option with similar length"],
-      "correctAnswerIndex": 0, // 0-based index of the correct option (0, 1, 2, or 3). For short_answer, use "correctAnswer" text instead.
+      "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text. For true_false: use correctAnswerIndex (0 for True, 1 for False).",
+      "computedValue": "Your raw computed answer with units for numeric questions, e.g. '0.05kg', '3600s'. Empty string for non-numeric.",
       "explanation": "Why the correct option is right. For math/science: show full calculation.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
@@ -859,7 +968,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, the options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text.
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, the options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computedValue" with your raw calculated result.
 
 Respond with ONLY valid JSON, no markdown or additional text.`;
 
@@ -931,9 +1040,10 @@ ANSWER LENGTH BALANCING (EXTREMELY IMPORTANT - FOLLOW STRICTLY):
 QUESTION GENERATION FLOW (MANDATORY - follow this exact order for each question):
 - Step 1: Write the question text
 - Step 2: Generate the answer options
-- Step 3: DECIDE which option is the correct answer and set "correctAnswer" — this is your commitment, do NOT change it later
-- Step 4: All other options are now wrong. Write "explanation" to explain why correctAnswer is right (for math/science, show the full calculation that arrives at the correctAnswer value)
-- Step 5: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake or misconception that would lead someone to pick it
+- Step 3: For math/science/numeric questions: SOLVE the problem yourself step-by-step to get the raw numeric result with units (e.g., "0.05kg", "3600s", "9.8m/s²"). Put this in "computedValue".
+- Step 4: DECIDE which option is the correct answer and set "correctAnswerIndex"
+- Step 5: Write "explanation" to explain why correctAnswer is right (for math/science, show the full calculation)
+- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake
 
 SELF-CONSISTENCY CHECK: The explanation MUST support the correctAnswer you already chose. If you realize during explanation that a different option is actually correct, go back and fix the correctAnswer BEFORE writing the explanation.
 
@@ -946,8 +1056,9 @@ OUTPUT FORMAT (JSON):
       "type": "multiple_choice" | "true_false" | "short_answer",
       "question": "The question text",
       "options": ["Option with similar length", "Option with similar length", "Option with similar length", "Option with similar length"],
-      "correctAnswerIndex": 0, // 0-based index of the correct option (0, 1, 2, or 3). For short_answer, use "correctAnswer" text instead.
+      "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text",
+      "computedValue": "Your raw computed answer with units for numeric questions, e.g. '0.05kg', '3600s'. Empty string for non-numeric.",
       "explanation": "Why the correct option is right. For math/science: show full calculation.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
@@ -959,7 +1070,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text.
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computedValue" with your raw calculated result.
 
 Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
 
@@ -1032,9 +1143,10 @@ ANSWER LENGTH BALANCING (EXTREMELY IMPORTANT - FOLLOW STRICTLY):
 QUESTION GENERATION FLOW (MANDATORY - follow this exact order for each question):
 - Step 1: Write the question text
 - Step 2: Generate the answer options
-- Step 3: DECIDE which option is the correct answer and set "correctAnswerIndex" — this is your commitment, do NOT change it later
-- Step 4: All other options are now wrong. Write "explanation" to explain why the correct option is right (for math/science, show the full calculation)
-- Step 5: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake or misconception that would lead someone to pick it
+- Step 3: For math/science/numeric questions: SOLVE the problem yourself step-by-step to get the raw numeric result with units (e.g., "0.05kg", "3600s", "9.8m/s²"). Put this in "computedValue".
+- Step 4: DECIDE which option is the correct answer and set "correctAnswerIndex"
+- Step 5: Write "explanation" to explain why correctAnswer is right (for math/science, show the full calculation)
+- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake
 
 SELF-CONSISTENCY CHECK: The explanation MUST support the option at correctAnswerIndex. If you realize during explanation that a different option is actually correct, go back and fix the correctAnswerIndex BEFORE writing the explanation.
 
@@ -1047,8 +1159,9 @@ OUTPUT FORMAT (JSON):
       "type": "multiple_choice" | "true_false" | "short_answer",
       "question": "The question text",
       "options": ["Option with similar length", "Option with similar length", "Option with similar length", "Option with similar length"],
-      "correctAnswerIndex": 0, // 0-based index of the correct option (0, 1, 2, or 3). For short_answer, use "correctAnswer" text instead.
+      "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text",
+      "computedValue": "Your raw computed answer with units for numeric questions, e.g. '0.05kg', '3600s'. Empty string for non-numeric.",
       "explanation": "Why the correct option is right. For math/science: show full calculation.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
@@ -1060,7 +1173,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text.
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computedValue" with your raw calculated result.
 
 Respond with ONLY valid JSON, no markdown or additional text.`;
 
@@ -1186,9 +1299,18 @@ Respond with ONLY valid JSON, no markdown or additional text.`;
       q.type === "multiple_choice" && q.correctAnswer && Array.isArray(q.options)
     );
 
-    await aiVerifyAnswers(mcQuestions, "[AI VERIFY]");
+    const numericMcQuestions = mcQuestions.filter((q: any) => hasNumericOptions(q.options.map((o: any) => String(o))));
+    const nonNumericMcQuestions = mcQuestions.filter((q: any) => !hasNumericOptions(q.options.map((o: any) => String(o))));
 
-    await codeFirstNumericPipeline(mcQuestions, "[GENERATE CODE-FIRST]");
+    if (numericMcQuestions.length > 0) {
+      console.log(`[GENERATE] ${numericMcQuestions.length} numeric questions — code will select answers deterministically`);
+      await codeSelectNumericAnswersFromGeneration(numericMcQuestions, "[GENERATE CODE-SELECT]");
+    }
+
+    if (nonNumericMcQuestions.length > 0) {
+      console.log(`[GENERATE] ${nonNumericMcQuestions.length} non-numeric questions — using AI verify`);
+      await aiVerifyAnswers(nonNumericMcQuestions, "[AI VERIFY]");
+    }
 
     for (const q of rawQuestions) {
       if (!q.type || !q.question || (!q.correctAnswer && q.correctAnswerIndex === undefined)) {
