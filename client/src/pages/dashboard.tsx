@@ -883,134 +883,130 @@ export default function Dashboard() {
           </div>
         </motion.section>
 
-        {/* Stats Section */}
+        {/* Stats + Continue Learning - Side by Side */}
         {hasQuizzes && (
           <motion.section variants={itemVariants}>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-              <StatCard
-                label="CREATED"
-                value={totalQuizzes}
-                icon={() => <FontAwesomeIcon icon={faFileLines} className="h-6 w-6" />}
-                gradient="bg-gradient-to-br from-blue-500 to-blue-600"
-              />
-              <StatCard
-                label="QUESTIONS"
-                value={totalQuestions}
-                icon={() => <FontAwesomeIcon icon={faMessage} className="h-6 w-6" />}
-                gradient="bg-gradient-to-br from-violet-500 to-violet-600"
-              />
-              <StatCard
-                label="ACCURACY"
-                value={userStats?.totalAttempts ? `${userStats.averageAccuracy}%` : "-"}
-                icon={() => <FontAwesomeIcon icon={faChartSimple} className="h-6 w-6" />}
-                gradient="bg-gradient-to-br from-emerald-500 to-emerald-600"
-                isActive={(userStats?.totalAttempts ?? 0) > 0}
-                onClick={() => setLocation("/progress")}
-              />
-            </div>
-          </motion.section>
-        )}
-
-        {/* Continue Section - Horizontally Scrollable Saved Quizzes */}
-        {hasSavedQuizzes && (
-          <motion.section variants={itemVariants} className="relative group/carousel">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-                <Play className="w-4 h-4 text-primary fill-primary" />
-                Continue Learning
-              </h2>
-              <div className="hidden md:flex items-center gap-2">
-                <Button 
-                  variant="outline" 
-                  size="icon" 
-                  className={`h-8 w-8 rounded-full transition-all duration-300 ${!canScrollLeft ? 'opacity-0 scale-90 pointer-events-none' : 'opacity-100 scale-100'}`}
-                  onClick={() => scroll('left')}
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="icon" 
-                  className={`h-8 w-8 rounded-full transition-all duration-300 ${!canScrollRight ? 'opacity-0 scale-90 pointer-events-none' : 'opacity-100 scale-100'}`}
-                  onClick={() => scroll('right')}
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-
-            <div className="relative">
-              <div 
-                ref={scrollContainerRef}
-                onScroll={checkScroll}
-                className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-none scroll-smooth"
-                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-              >
-                {allSavedQuizzes.map((item, idx) => {
-                  const answerKeys = Object.keys(item.answers);
-                  const retryAnswerKeys = answerKeys.filter(k => k.startsWith('retry-'));
-                  const originalAnswerKeys = answerKeys.filter(k => !k.startsWith('retry-'));
-                  const totalQuestions = item.quiz.questions?.length || 0;
-                  const checkedQuestionsCount = item.checkedQuestions?.length || 0;
-                  
-                  // Calculate total wrong questions from first attempt by comparing answers to correct answers
-                  let wrongQuestionsCount = 0;
-                  if (item.quiz.questions) {
-                    const questions = item.quiz.questions as any[];
-                    wrongQuestionsCount = questions.filter(q => {
-                      const userAnswer = item.answers[q.id];
-                      return userAnswer && userAnswer.toLowerCase().trim() !== q.correctAnswer.toLowerCase().trim();
-                    }).length;
-                  }
-                  
-                  // User is in revision mode if:
-                  // 1. All original questions are checked (completed first attempt) AND there are wrong answers to retry
-                  // 2. OR there are already retry answers (actively revising)
-                  const hasCompletedFirstAttempt = checkedQuestionsCount >= totalQuestions && totalQuestions > 0;
-                  const hasWrongAnswersToRetry = wrongQuestionsCount > 0;
-                  const hasRetryProgress = retryAnswerKeys.length > 0;
-                  const isRevising = (hasCompletedFirstAttempt && hasWrongAnswersToRetry) || hasRetryProgress;
-                  
-                  // retryAnsweredCount = number of retry answers given
-                  // retryTotalCount = number of wrong questions from first attempt (the retry questions that need to be answered)
-                  const retryAnsweredCount = retryAnswerKeys.length;
-                  const retryTotalCount = wrongQuestionsCount;
-                  
-                  return (
-                    <div 
-                      key={item.quizId + idx} 
-                      className="w-full flex-shrink-0 snap-center"
-                    >
-                      <ContinueQuizCard
-                        quiz={item.quiz}
-                        answeredCount={originalAnswerKeys.length}
-                        totalCount={item.quiz.questions?.length || 0}
-                        onContinue={() => handleContinueSavedQuiz(item.quizId)}
-                        onDiscard={() => handleAttemptDiscard(item)}
-                        isCurrent={false}
-                        savedAt={item.savedAt}
-                        isRevising={isRevising}
-                        retryAnsweredCount={retryAnsweredCount}
-                        retryTotalCount={retryTotalCount}
-                      />
+            <div className={`grid gap-5 ${hasSavedQuizzes ? 'lg:grid-cols-[1fr_280px]' : ''}`}>
+              {/* Continue Learning (left/top) */}
+              {hasSavedQuizzes && (
+                <div className="relative group/carousel min-w-0">
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+                      <Play className="w-4 h-4 text-primary fill-primary" />
+                      Continue Learning
+                    </h2>
+                    <div className="hidden md:flex items-center gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="icon" 
+                        className={`h-8 w-8 rounded-full transition-all duration-300 ${!canScrollLeft ? 'opacity-0 scale-90 pointer-events-none' : 'opacity-100 scale-100'}`}
+                        onClick={() => scroll('left')}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="icon" 
+                        className={`h-8 w-8 rounded-full transition-all duration-300 ${!canScrollRight ? 'opacity-0 scale-90 pointer-events-none' : 'opacity-100 scale-100'}`}
+                        onClick={() => scroll('right')}
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
 
-            {/* Dots for PC & Mobile */}
-            {allSavedQuizzes.length > 1 && (
-              <div className="flex justify-center gap-1.5 mt-2">
-                {allSavedQuizzes.map((_, i) => (
-                  <div 
-                    key={i} 
-                    className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
-                      activeIndex === i ? 'bg-primary w-3' : 'bg-muted-foreground/30'
-                    }`}
-                  />
-                ))}
+                  <div className="relative">
+                    <div 
+                      ref={scrollContainerRef}
+                      onScroll={checkScroll}
+                      className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-none scroll-smooth"
+                      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                    >
+                      {allSavedQuizzes.map((item, idx) => {
+                        const answerKeys = Object.keys(item.answers);
+                        const retryAnswerKeys = answerKeys.filter(k => k.startsWith('retry-'));
+                        const originalAnswerKeys = answerKeys.filter(k => !k.startsWith('retry-'));
+                        const totalQuestions = item.quiz.questions?.length || 0;
+                        const checkedQuestionsCount = item.checkedQuestions?.length || 0;
+                        
+                        let wrongQuestionsCount = 0;
+                        if (item.quiz.questions) {
+                          const questions = item.quiz.questions as any[];
+                          wrongQuestionsCount = questions.filter(q => {
+                            const userAnswer = item.answers[q.id];
+                            return userAnswer && userAnswer.toLowerCase().trim() !== q.correctAnswer.toLowerCase().trim();
+                          }).length;
+                        }
+                        
+                        const hasCompletedFirstAttempt = checkedQuestionsCount >= totalQuestions && totalQuestions > 0;
+                        const hasWrongAnswersToRetry = wrongQuestionsCount > 0;
+                        const hasRetryProgress = retryAnswerKeys.length > 0;
+                        const isRevising = (hasCompletedFirstAttempt && hasWrongAnswersToRetry) || hasRetryProgress;
+                        
+                        const retryAnsweredCount = retryAnswerKeys.length;
+                        const retryTotalCount = wrongQuestionsCount;
+                        
+                        return (
+                          <div 
+                            key={item.quizId + idx} 
+                            className="w-full flex-shrink-0 snap-center"
+                          >
+                            <ContinueQuizCard
+                              quiz={item.quiz}
+                              answeredCount={originalAnswerKeys.length}
+                              totalCount={item.quiz.questions?.length || 0}
+                              onContinue={() => handleContinueSavedQuiz(item.quizId)}
+                              onDiscard={() => handleAttemptDiscard(item)}
+                              isCurrent={false}
+                              savedAt={item.savedAt}
+                              isRevising={isRevising}
+                              retryAnsweredCount={retryAnsweredCount}
+                              retryTotalCount={retryTotalCount}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {allSavedQuizzes.length > 1 && (
+                      <div className="flex justify-center gap-1.5 mt-2">
+                        {allSavedQuizzes.map((_, i) => (
+                          <div 
+                            key={i} 
+                            className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+                              activeIndex === i ? 'bg-primary w-3' : 'bg-muted-foreground/30'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Stats (right/bottom) */}
+              <div className={hasSavedQuizzes ? 'flex flex-col gap-3' : 'grid grid-cols-3 gap-4'}>
+                <StatCard
+                  label="CREATED"
+                  value={totalQuizzes}
+                  icon={() => <FontAwesomeIcon icon={faFileLines} className="h-5 w-5" />}
+                  gradient="bg-gradient-to-br from-blue-500 to-blue-600"
+                />
+                <StatCard
+                  label="QUESTIONS"
+                  value={totalQuestions}
+                  icon={() => <FontAwesomeIcon icon={faMessage} className="h-5 w-5" />}
+                  gradient="bg-gradient-to-br from-violet-500 to-violet-600"
+                />
+                <StatCard
+                  label="ACCURACY"
+                  value={userStats?.totalAttempts ? `${userStats.averageAccuracy}%` : "-"}
+                  icon={() => <FontAwesomeIcon icon={faChartSimple} className="h-5 w-5" />}
+                  gradient="bg-gradient-to-br from-emerald-500 to-emerald-600"
+                  isActive={(userStats?.totalAttempts ?? 0) > 0}
+                  onClick={() => setLocation("/progress")}
+                />
               </div>
-            )}
             </div>
           </motion.section>
         )}
