@@ -138,33 +138,73 @@ function StatCard({
   isActive?: boolean;
   testId: string;
 }) {
+  const colorMap: Record<string, { bg: string; text: string; iconBg: string; ring: string }> = {
+    "bg-gradient-to-br from-emerald-500 to-emerald-600": {
+      bg: "bg-emerald-50 dark:bg-emerald-950/30",
+      text: "text-emerald-600 dark:text-emerald-400",
+      iconBg: "bg-emerald-100 dark:bg-emerald-900/50",
+      ring: "ring-emerald-200 dark:ring-emerald-800/50",
+    },
+    "bg-gradient-to-br from-blue-500 to-blue-600": {
+      bg: "bg-blue-50 dark:bg-blue-950/30",
+      text: "text-blue-600 dark:text-blue-400",
+      iconBg: "bg-blue-100 dark:bg-blue-900/50",
+      ring: "ring-blue-200 dark:ring-blue-800/50",
+    },
+    "bg-gradient-to-br from-teal-500 to-teal-600": {
+      bg: "bg-teal-50 dark:bg-teal-950/30",
+      text: "text-teal-600 dark:text-teal-400",
+      iconBg: "bg-teal-100 dark:bg-teal-900/50",
+      ring: "ring-teal-200 dark:ring-teal-800/50",
+    },
+    "bg-gradient-to-br from-rose-500 to-rose-600": {
+      bg: "bg-rose-50 dark:bg-rose-950/30",
+      text: "text-rose-600 dark:text-rose-400",
+      iconBg: "bg-rose-100 dark:bg-rose-900/50",
+      ring: "ring-rose-200 dark:ring-rose-800/50",
+    },
+    "bg-gradient-to-br from-slate-500 to-slate-600": {
+      bg: "bg-slate-50 dark:bg-slate-950/30",
+      text: "text-slate-600 dark:text-slate-400",
+      iconBg: "bg-slate-100 dark:bg-slate-900/50",
+      ring: "ring-slate-200 dark:ring-slate-800/50",
+    },
+  };
+
+  const colors = colorMap[gradient] || colorMap["bg-gradient-to-br from-blue-500 to-blue-600"];
+  const inactive = !isActive;
+
   return (
-    <motion.div 
-      whileHover={{ y: -4, scale: 1.02 }} 
-      transition={{ duration: 0.2 }}
+    <motion.div
+      whileHover={{ y: -2, transition: { duration: 0.2, ease: "easeOut" } }}
+      className="h-full"
     >
-      <Card className="overflow-visible border-0 shadow-md" data-testid={testId}>
-        <CardContent className="p-0">
-          <div className={`p-4 rounded-md transition-all duration-500 ${isActive ? gradient : "bg-muted shadow-inner"}`}>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="mb-0.5 transition-colors text-white/60 text-[10px] text-left font-medium uppercase tracking-wider">{label}</p>
-                <motion.p 
-                  className={`text-2xl font-bold transition-colors ${isActive ? "text-white" : "text-foreground"}`}
-                  initial={{ scale: 0.5, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ type: "spring", stiffness: 200, damping: 15, delay: 0.2 }}
-                >
-                  {value}
-                </motion.p>
-              </div>
-              <div className="p-3 rounded-xl transition-all duration-500 flex items-center justify-center bg-white/20 backdrop-blur-sm scale-110 shadow-lg text-[#ffffff]">
-                <Icon className="w-6 h-6 transition-colors text-white" />
-              </div>
-            </div>
+      <div
+        className={`relative rounded-2xl p-5 ring-1 transition-all duration-300 h-full ${
+          inactive
+            ? "bg-muted/50 ring-border"
+            : `${colors.bg} ${colors.ring} hover:ring-2`
+        }`}
+        data-testid={testId}
+      >
+        <div className="flex items-center gap-4">
+          <div className={`shrink-0 flex items-center justify-center w-11 h-11 rounded-xl transition-colors ${
+            inactive ? "bg-muted" : colors.iconBg
+          }`}>
+            <Icon className={`h-5 w-5 ${inactive ? "text-muted-foreground" : colors.text}`} />
           </div>
-        </CardContent>
-      </Card>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {label}
+            </p>
+            <p className={`text-2xl font-bold tracking-tight mt-0.5 ${
+              inactive ? "text-muted-foreground" : "text-foreground"
+            }`}>
+              {value}
+            </p>
+          </div>
+        </div>
+      </div>
     </motion.div>
   );
 }
