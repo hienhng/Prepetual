@@ -595,10 +595,9 @@ Respond with ONLY a JSON array. For each question:
         if (!q.wrongAnswerExplanations) q.wrongAnswerExplanations = {};
         for (const opt of options) {
           if (opt === finalCorrect) continue;
-          const optText = opt.replace(/^[A-D]\)\s*/, "").trim();
-          const hasExplanation = q.wrongAnswerExplanations[optText] || q.wrongAnswerExplanations[opt];
+          const hasExplanation = q.wrongAnswerExplanations[opt];
           if (!hasExplanation) {
-            q.wrongAnswerExplanations[optText] = `This is incorrect. The correct answer is ${finalCorrect.replace(/^[A-D]\)\s*/, "").trim()}.`;
+            q.wrongAnswerExplanations[opt] = `This is incorrect. The correct answer is ${finalCorrect}.`;
           }
         }
       }
@@ -1106,34 +1105,23 @@ Respond with ONLY valid JSON, no markdown or additional text.`;
         }
       }
 
+      const stripPrefix = (s: string) => s.replace(/^[A-Da-d][).:]\s*/i, "").trim();
+
       let options =
         q.type === "multiple_choice" && Array.isArray(q.options)
-          ? q.options.map((o: any) => String(o).trim())
+          ? q.options.map((o: any) => stripPrefix(String(o).trim()))
           : undefined;
 
-      let correctAnswer = String(q.correctAnswer).trim();
+      let correctAnswer = stripPrefix(String(q.correctAnswer).trim());
 
-      // Programmatically shuffle options to ensure maximum randomness
       if (q.type === "multiple_choice" && options && options.length > 0) {
-        // Find the index of the current correct answer
-        // Note: AI usually returns "A) Text" or just "Text"
-        const currentCorrectAns = correctAnswer;
-        const currentOptions = options;
-        const correctIndex = currentOptions.findIndex(
-          (o: string) =>
-            o === currentCorrectAns ||
-            o.split(") ")[1] === currentCorrectAns ||
-            currentCorrectAns.includes(o),
+        const correctIndex = options.findIndex(
+          (o: string) => o === correctAnswer,
         );
 
         if (correctIndex !== -1) {
-          const correctText = currentOptions[correctIndex].replace(
-            /^[A-D]\) /,
-            "",
-          );
-          const plainOptions = currentOptions.map((o: string) =>
-            o.replace(/^[A-D]\) /, ""),
-          );
+          const correctText = options[correctIndex];
+          const plainOptions = [...options];
 
           // Shuffle
           for (let i = plainOptions.length - 1; i > 0; i--) {
@@ -1453,20 +1441,19 @@ Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
         continue;
       }
 
+      const stripPrefix = (s: string) => s.replace(/^[A-Da-d][).:]\s*/i, "").trim();
+
       let options =
         Array.isArray(q.options) && q.options.length > 0
-          ? q.options.map((o: any) => String(o).trim())
+          ? q.options.map((o: any) => stripPrefix(String(o).trim()))
           : undefined;
 
-      // Auto-detect question type based on options
       let questionType: QuestionType = "multiple_choice";
       
       if (!options || options.length === 0) {
-        // No options = short answer
         questionType = "short_answer";
         options = undefined;
       } else if (options.length === 2) {
-        // Check if it's true/false
         const normalizedOptions = options.map((o: string) => o.toLowerCase().trim());
         const trueFalsePatterns = [
           ["true", "false"],
@@ -1492,7 +1479,7 @@ Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
         questionType = q.type as QuestionType;
       }
 
-      let correctAnswer = String(q.correctAnswer).trim();
+      let correctAnswer = stripPrefix(String(q.correctAnswer).trim());
       
       // Normalize correct answer for true/false questions
       if (questionType === "true_false") {
@@ -1504,25 +1491,14 @@ Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
         }
       }
 
-      // Programmatically shuffle options to ensure maximum randomness even for imported quizzes
       if (questionType === "multiple_choice" && options && options.length > 0) {
-        const currentCorrectAns = correctAnswer;
-        const currentOptions = options;
-        const correctIndex = currentOptions.findIndex(
-          (o: string) =>
-            o === currentCorrectAns ||
-            o.split(") ")[1] === currentCorrectAns ||
-            currentCorrectAns.includes(o),
+        const correctIndex = options.findIndex(
+          (o: string) => o === correctAnswer,
         );
 
         if (correctIndex !== -1) {
-          const correctText = currentOptions[correctIndex].replace(
-            /^[A-D]\) /,
-            "",
-          );
-          const plainOptions = currentOptions.map((o: string) =>
-            o.replace(/^[A-D]\) /, ""),
-          );
+          const correctText = options[correctIndex];
+          const plainOptions = [...options];
 
           for (let i = plainOptions.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
@@ -1546,7 +1522,7 @@ Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
         wrongAnswerExplanations = {};
         for (const [key, value] of Object.entries(q.wrongAnswerExplanations)) {
           if (value && typeof value === "string") {
-            wrongAnswerExplanations[String(key).trim()] = String(value).trim();
+            wrongAnswerExplanations[stripPrefix(String(key).trim())] = String(value).trim();
           }
         }
       }
