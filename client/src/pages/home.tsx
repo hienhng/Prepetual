@@ -675,7 +675,7 @@ function PrepetualQuizPlayer() {
       <div className="px-5 pt-4 pb-2.5 border-b border-border/30 bg-background/80 backdrop-blur-sm">
         <div className="flex items-center justify-between mb-2.5">
           <span className="font-brand text-[13px] font-bold text-primary tracking-tight">
-            prepetual
+            Prepetual
           </span>
         </div>
         <div className="h-1 bg-muted/80 rounded-full overflow-hidden">
@@ -2763,7 +2763,6 @@ export default function Home() {
   const { isAuthenticated, isLoading } = useAuth();
   const { openLoginDialog, openSignUpDialog } = useAuthDialog();
   const [showScrollTop, setShowScrollTop] = useState(false);
-  const [pillOnDark, setPillOnDark] = useState(false);
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
@@ -2775,18 +2774,11 @@ export default function Home() {
     setExtractedText("");
   }, []);
 
-  const heroRef = useRef<HTMLElement>(null);
-
   useEffect(() => {
     const handleScroll = () => {
       setShowScrollTop(window.scrollY > 300);
-      if (heroRef.current) {
-        const heroBottom = heroRef.current.offsetTop + heroRef.current.offsetHeight;
-        setPillOnDark(window.scrollY + 72 > heroBottom);
-      }
     };
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    handleScroll();
+    window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
@@ -2813,26 +2805,20 @@ export default function Home() {
   return (
     <div className="min-h-screen overflow-hidden">
       <div className="fixed top-4 left-0 right-0 z-50 flex justify-center px-3 sm:px-4 pointer-events-none">
-        <div
-          className={`flex items-center justify-between gap-4 h-14 px-6 rounded-full border backdrop-blur-md shadow-sm max-w-6xl w-full pointer-events-auto transition-colors duration-300 ${
-            pillOnDark
-              ? "bg-white/80 border-white/30 text-gray-900"
-              : "bg-background/50 border-border/20 text-foreground"
-          }`}
-        >
+        <div className="flex items-center justify-between gap-4 h-14 px-6 rounded-full border border-border/40 bg-background/50 backdrop-blur-md shadow-sm max-w-6xl w-full pointer-events-auto">
           <Link href="/" className="flex items-center gap-2.5" data-testid="link-logo">
             <img 
               src={logoImage} 
               alt="Prepetual Logo" 
               className="w-9 h-9 rounded-full object-cover"
             />
-            <span className={`pb-0.5 text-xl font-brand hidden sm:inline ${pillOnDark ? "text-gray-900" : "text-foreground"}`}>prepetual</span>
+            <span className="pb-0.5 text-xl font-brand text-foreground hidden sm:inline">prepetual</span>
           </Link>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             {!isLoading && (
               <>
-                <Button variant="ghost" onClick={openLoginDialog} data-testid="button-login" className={pillOnDark ? "text-gray-700 hover:text-gray-900 hover:bg-gray-200/50" : ""}>
+                <Button variant="ghost" onClick={openLoginDialog} data-testid="button-login">
                   Log in
                 </Button>
                 <Button variant="default" onClick={openSignUpDialog} data-testid="button-signup">
@@ -2844,7 +2830,7 @@ export default function Home() {
         </div>
       </div>
 
-      <section ref={heroRef} className="relative pb-8 md:pb-16 overflow-hidden">
+      <section className="relative pb-8 md:pb-16 overflow-hidden">
         <div className="absolute inset-0 pointer-events-none">
           <motion.div
             className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full bg-primary/8 blur-[120px]"
