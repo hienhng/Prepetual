@@ -149,8 +149,16 @@ function parseNumericWithUnit(text: string): { value: number; unit: string; siVa
 
 const UNIT_PATTERN_STR = 'kg|g|mg|tấn|ton|m\\/s|km\\/h|cm\\/s|rad\\/s|m²|cm²|dm²|km²|m2|cm2|m³|cm³|dm³|m3|cm3|km|dm|cm|mm|ml|kPa|MPa|kpa|mpa|Pa|pa|atm|bar|kHz|MHz|hz|khz|mhz|Hz|kV|mV|kv|mv|mA|ma|kΩ|kω|kohm|Ω|ω|ohm|kW|mW|kw|mw|kJ|MJ|kj|mj|kcal|cal|kN|kn|ms|min|m|s|h|l|J|j|N|n|V|v|A|a|W|w';
 
-function deterministicNumericVerify(explanation: string, options: string[], currentCorrectAnswer: string): string | null {
+function codeSelectNumericAnswer(
+  aiComputedAnswer: string,
+  options: string[],
+  currentCorrectAnswer: string
+): { selectedAnswer: string; wasChanged: boolean } | null {
   if (!options || options.length === 0) return null;
+
+  const parsedAiAnswer = parseNumericWithUnit(aiComputedAnswer);
+  
+  const parsedCurrentAnswer = parseNumericWithUnit(currentCorrectAnswer);
 
   const parsedOptions = options.map(opt => ({
     text: opt,
@@ -160,23 +168,69 @@ function deterministicNumericVerify(explanation: string, options: string[], curr
   const numericOptions = parsedOptions.filter(o => o.parsed !== null);
   if (numericOptions.length < 2) return null;
 
+  const answerParsed = parsedAiAnswer || parsedCurrentAnswer;
+  if (!answerParsed) return null;
+
+  const answerSiValue = answerParsed.siValue;
+  const answerSiUnit = answerParsed.siUnit;
+
+  console.log(`[CODE SELECT] AI answer: "${aiComputedAnswer}" → ${answerParsed.value} ${answerParsed.unit} → SI: ${answerSiValue} ${answerSiUnit}`);
+  for (const opt of numericOptions) {
+    console.log(`[CODE SELECT]   Option "${opt.text}" → ${opt.parsed!.value} ${opt.parsed!.unit} → SI: ${opt.parsed!.siValue} ${opt.parsed!.siUnit}`);
+  }
+
+  const TOLERANCE = 1e-4;
+  let bestMatch: string | null = null;
+  let bestDiff = Infinity;
+
+  for (const opt of numericOptions) {
+    if (opt.parsed!.siUnit !== answerSiUnit) continue;
+    const diff = Math.abs(opt.parsed!.siValue - answerSiValue);
+    const relativeDiff = answerSiValue !== 0 ? diff / Math.abs(answerSiValue) : diff;
+
+    if (relativeDiff < TOLERANCE && relativeDiff < bestDiff) {
+      bestDiff = relativeDiff;
+      bestMatch = opt.text;
+    }
+  }
+
+  if (bestMatch) {
+    const wasChanged = bestMatch !== currentCorrectAnswer;
+    if (wasChanged) {
+      console.log(`[CODE SELECT] CORRECTED: "${currentCorrectAnswer}" → "${bestMatch}" (SI match: ${answerSiValue} ${answerSiUnit})`);
+    } else {
+      console.log(`[CODE SELECT] CONFIRMED: "${currentCorrectAnswer}" (SI match: ${answerSiValue} ${answerSiUnit})`);
+    }
+    return { selectedAnswer: bestMatch, wasChanged };
+  }
+
+  return null;
+}
+
+function extractAnswerValueFromExplanation(explanation: string, options: string[]): string | null {
+  if (!explanation) return null;
+
+  const parsedOptions = options.map(opt => ({
+    text: opt,
+    parsed: parseNumericWithUnit(opt),
+  }));
+  const numericOptions = parsedOptions.filter(o => o.parsed !== null);
+  if (numericOptions.length < 2) return null;
+
   const siUnitGroups = new Map<string, typeof numericOptions>();
   for (const opt of numericOptions) {
     const su = opt.parsed!.siUnit;
     if (!siUnitGroups.has(su)) siUnitGroups.set(su, []);
     siUnitGroups.get(su)!.push(opt);
   }
-
   const largestGroup = Array.from(siUnitGroups.entries()).sort((a, b) => b[1].length - a[1].length)[0];
   if (!largestGroup || largestGroup[1].length < 2) return null;
-
   const targetSiUnit = largestGroup[0];
 
   const keywordPattern = new RegExp(
     `(?:=|→|≈|≃|kết quả|result|answer|equals|is|được|bằng|therefore|so|thus|hence|vậy|nên|suy ra)\\s*([+-]?\\d+(?:[.,]\\d+)?(?:[eE][+-]?\\d+)?)\\s*(${UNIT_PATTERN_STR})(?:\\b|(?=[^a-zA-Z]))`,
     'gi'
   );
-
   const genericPattern = new RegExp(
     `([+-]?\\d+(?:[.,]\\d+)?(?:[eE][+-]?\\d+)?)\\s*(${UNIT_PATTERN_STR})(?:\\b|(?=[^a-zA-Z]))`,
     'gi'
@@ -186,20 +240,14 @@ function deterministicNumericVerify(explanation: string, options: string[], curr
   let m;
   while ((m = keywordPattern.exec(explanation)) !== null) {
     const val = parseFloat(m[1].replace(',', '.'));
-    if (!isNaN(val)) {
-      matches.push({ value: val, unit: m[2] });
-    }
+    if (!isNaN(val)) matches.push({ value: val, unit: m[2] });
   }
-
   if (matches.length === 0) {
     while ((m = genericPattern.exec(explanation)) !== null) {
       const val = parseFloat(m[1].replace(',', '.'));
-      if (!isNaN(val)) {
-        matches.push({ value: val, unit: m[2] });
-      }
+      if (!isNaN(val)) matches.push({ value: val, unit: m[2] });
     }
   }
-
   if (matches.length === 0) return null;
 
   let explanationSiValue: number | null = null;
@@ -211,7 +259,6 @@ function deterministicNumericVerify(explanation: string, options: string[], curr
       break;
     }
   }
-
   if (explanationSiValue === null) {
     const lastMatch = matches[matches.length - 1];
     const unitLower = lastMatch.unit.toLowerCase();
@@ -223,23 +270,167 @@ function deterministicNumericVerify(explanation: string, options: string[], curr
   const TOLERANCE = 1e-4;
   let bestMatch: string | null = null;
   let bestDiff = Infinity;
-
   for (const opt of numericOptions) {
     if (opt.parsed!.siUnit !== targetSiUnit) continue;
     const diff = Math.abs(opt.parsed!.siValue - explanationSiValue);
     const relativeDiff = explanationSiValue !== 0 ? diff / Math.abs(explanationSiValue) : diff;
-
     if (relativeDiff < TOLERANCE && relativeDiff < bestDiff) {
       bestDiff = relativeDiff;
       bestMatch = opt.text;
     }
   }
+  return bestMatch;
+}
 
-  if (bestMatch && bestMatch !== currentCorrectAnswer) {
-    return bestMatch;
+async function generateExplanationForAnswer(
+  question: string,
+  options: string[],
+  correctAnswer: string,
+  correctIndex: number,
+): Promise<{ explanation: string; wrongAnswerExplanations: Record<string, string> } | null> {
+  try {
+    const numberedOptions = options.map((opt, i) => `  Option ${i}: "${opt}"`).join("\n");
+    const prompt = `You are an expert educator. A quiz question has been answered by deterministic code. Your job is ONLY to write the explanation — do NOT change the answer.
+
+Question: ${question}
+Options:
+${numberedOptions}
+
+The CORRECT answer is Option ${correctIndex}: "${correctAnswer}"
+DO NOT question or change this answer. Just explain WHY it is correct.
+
+INSTRUCTIONS:
+- Write in the SAME language as the question
+- For math/science: show the full step-by-step calculation that leads to "${correctAnswer}"
+- For each wrong option, explain what specific error or misconception would lead to that value
+- Keep explanations clear and educational
+
+Respond in JSON:
+{
+  "explanation": "Step-by-step explanation of why the correct answer is right",
+  "wrongAnswerExplanations": {
+    "wrong option text": "why this is incorrect"
+  }
+}`;
+
+    const completion = await pRetry(
+      async () => {
+        const result = await openai.chat.completions.create({
+          model: "openai/gpt-4o-mini",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.2,
+          max_tokens: 2000,
+          response_format: { type: "json_object" },
+        });
+        return result.choices[0]?.message?.content || "";
+      },
+      { retries: 2, minTimeout: 1000 }
+    );
+
+    const parsed = JSON.parse(completion);
+    if (!parsed.explanation) return null;
+
+    const wrongAnswerExplanations: Record<string, string> = {};
+    if (parsed.wrongAnswerExplanations) {
+      for (const [key, value] of Object.entries(parsed.wrongAnswerExplanations)) {
+        if (typeof value === "string") {
+          wrongAnswerExplanations[String(key).trim()] = String(value).trim();
+        }
+      }
+    }
+
+    return {
+      explanation: parsed.explanation,
+      wrongAnswerExplanations,
+    };
+  } catch (error) {
+    console.warn("[EXPLAIN] Failed to generate explanation for code-selected answer:", error);
+    return null;
+  }
+}
+
+function hasNumericOptions(options: string[]): boolean {
+  const numericCount = options.filter(opt => parseNumericWithUnit(opt) !== null).length;
+  return numericCount >= 2;
+}
+
+async function codeFirstNumericPipeline(mcQuestions: any[], logPrefix: string = "[CODE-FIRST]"): Promise<void> {
+  if (mcQuestions.length === 0) return;
+
+  const questionsNeedingExplanation: Array<{ q: any; correctIndex: number }> = [];
+
+  for (const q of mcQuestions) {
+    if (!q.correctAnswer || !Array.isArray(q.options) || q.options.length === 0) continue;
+
+    const options = q.options.map((o: any) => String(o).trim());
+    const currentAnswer = String(q.correctAnswer).trim();
+
+    if (!hasNumericOptions(options)) continue;
+
+    const aiComputedValue = q._aiComputedValue || currentAnswer;
+
+    const codeResult = codeSelectNumericAnswer(aiComputedValue, options, currentAnswer);
+
+    if (codeResult) {
+      if (codeResult.wasChanged) {
+        console.log(`${logPrefix} Code OVERRODE answer: "${currentAnswer}" → "${codeResult.selectedAnswer}" (AI computed: "${aiComputedValue}") for: "${String(q.question).substring(0, 60)}..."`);
+        q.correctAnswer = codeResult.selectedAnswer;
+        const idx = options.indexOf(codeResult.selectedAnswer);
+        if (idx !== -1) {
+          questionsNeedingExplanation.push({ q, correctIndex: idx });
+        }
+      }
+      continue;
+    }
+
+    if (q.explanation) {
+      const extractedAnswer = extractAnswerValueFromExplanation(String(q.explanation), options);
+      if (extractedAnswer) {
+        if (extractedAnswer !== currentAnswer) {
+          console.log(`${logPrefix} Explanation-extracted answer "${extractedAnswer}" overrides "${currentAnswer}" for: "${String(q.question).substring(0, 60)}..."`);
+          q.correctAnswer = extractedAnswer;
+          const idx = options.indexOf(extractedAnswer);
+          if (idx !== -1) {
+            questionsNeedingExplanation.push({ q, correctIndex: idx });
+          }
+        }
+        continue;
+      }
+    }
+
+    const currentParsed = parseNumericWithUnit(currentAnswer);
+    if (!currentParsed) {
+      console.warn(`${logPrefix} WARNING: Numeric options detected but code could not parse AI answer "${aiComputedValue}" — keeping AI selection for: "${String(q.question).substring(0, 60)}..."`);
+    }
   }
 
-  return null;
+  if (questionsNeedingExplanation.length > 0) {
+    console.log(`${logPrefix} Generating explanations for ${questionsNeedingExplanation.length} code-corrected answers...`);
+    const explanationLimit = pLimit(3);
+    await Promise.all(
+      questionsNeedingExplanation.map(({ q, correctIndex }) =>
+        explanationLimit(async () => {
+          const result = await generateExplanationForAnswer(
+            String(q.question),
+            q.options.map((o: any) => String(o)),
+            String(q.correctAnswer),
+            correctIndex,
+          );
+          if (result) {
+            q.explanation = result.explanation;
+            if (Object.keys(result.wrongAnswerExplanations).length > 0) {
+              q.wrongAnswerExplanations = result.wrongAnswerExplanations;
+            }
+            console.log(`${logPrefix} New explanation generated for: "${String(q.question).substring(0, 60)}..."`);
+          }
+        })
+      )
+    );
+  }
+
+  for (const q of mcQuestions) {
+    delete q._aiComputedValue;
+  }
 }
 
 export type ImageClassification = {
@@ -467,8 +658,9 @@ ${JSON.stringify(verificationItems, null, 2)}
 
 Respond with ONLY a JSON array. For each question:
 - "correctAnswerIndex": the 0-based INDEX of the correct option (0, 1, 2, or 3) — use a NUMBER, not text
+- "computedValue": your independently computed answer as a string with the number and unit (e.g., "0.05kg", "3600s", "9.8m/s"). For non-numeric questions, use "".
 - "explanation": if changed, a corrected explanation; if unchanged, copy the original
-[{"index": 0, "correctAnswerIndex": 2, "explanation": "why correct"}, ...]`;
+[{"index": 0, "correctAnswerIndex": 2, "computedValue": "0.05kg", "explanation": "why correct"}, ...]`;
 
     const verifyResponse = await pRetry(
       async () => {
@@ -494,6 +686,11 @@ Respond with ONLY a JSON array. For each question:
 
         const options = q.options.map((o: any) => String(o).trim());
         const markedCorrect = String(q.correctAnswer).trim();
+
+        if (v.computedValue && typeof v.computedValue === "string" && v.computedValue.trim().length > 0) {
+          q._aiComputedValue = v.computedValue.trim();
+          console.log(`${logPrefix} Question "${String(q.question).substring(0, 60)}..." — AI computed value: "${q._aiComputedValue}"`);
+        }
 
         if (v.correctAnswerIndex !== undefined) {
           const ansIdx = typeof v.correctAnswerIndex === "string" ? parseInt(v.correctAnswerIndex, 10) : v.correctAnswerIndex;
@@ -986,23 +1183,12 @@ Respond with ONLY valid JSON, no markdown or additional text.`;
 
     onProgress?.("verifying", 85, "Verifying answer accuracy...");
     const mcQuestions = rawQuestions.filter((q: any) => 
-      q.type === "multiple_choice" && q.explanation && q.correctAnswer && Array.isArray(q.options)
+      q.type === "multiple_choice" && q.correctAnswer && Array.isArray(q.options)
     );
+
     await aiVerifyAnswers(mcQuestions, "[AI VERIFY]");
 
-    for (const q of mcQuestions) {
-      const fixedAnswer = verifyAnswerMatchesExplanation(String(q.explanation), String(q.correctAnswer), q.options.map((o: any) => String(o)));
-      if (fixedAnswer && fixedAnswer !== q.correctAnswer) {
-        console.warn(`[REGEX VERIFY] Correcting answer: "${q.correctAnswer}" -> "${fixedAnswer}" for: "${String(q.question).substring(0, 60)}..."`);
-        q.correctAnswer = fixedAnswer;
-      }
-
-      const siFixed = deterministicNumericVerify(String(q.explanation), q.options.map((o: any) => String(o)), String(q.correctAnswer));
-      if (siFixed) {
-        console.warn(`[SI UNIT VERIFY] Correcting answer: "${q.correctAnswer}" -> "${siFixed}" for: "${String(q.question).substring(0, 60)}..."`);
-        q.correctAnswer = siFixed;
-      }
-    }
+    await codeFirstNumericPipeline(mcQuestions, "[GENERATE CODE-FIRST]");
 
     for (const q of rawQuestions) {
       if (!q.type || !q.question || (!q.correctAnswer && q.correctAnswerIndex === undefined)) {
@@ -1347,23 +1533,12 @@ Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
     }
 
     const importMcQuestions = parsed.questions.filter((q: any) =>
-      q.explanation && q.correctAnswer && Array.isArray(q.options) && q.options.length > 0
+      q.correctAnswer && Array.isArray(q.options) && q.options.length > 0
     );
+
     await aiVerifyAnswers(importMcQuestions, "[IMPORT AI VERIFY]");
 
-    for (const q of importMcQuestions) {
-      const fixedAnswer = verifyAnswerMatchesExplanation(String(q.explanation), String(q.correctAnswer), q.options.map((o: any) => String(o)));
-      if (fixedAnswer && fixedAnswer !== q.correctAnswer) {
-        console.warn(`[IMPORT REGEX VERIFY] Correcting answer: "${q.correctAnswer}" -> "${fixedAnswer}" for: "${String(q.question).substring(0, 60)}..."`);
-        q.correctAnswer = fixedAnswer;
-      }
-
-      const siFixed = deterministicNumericVerify(String(q.explanation), q.options.map((o: any) => String(o)), String(q.correctAnswer));
-      if (siFixed) {
-        console.warn(`[IMPORT SI UNIT VERIFY] Correcting answer: "${q.correctAnswer}" -> "${siFixed}" for: "${String(q.question).substring(0, 60)}..."`);
-        q.correctAnswer = siFixed;
-      }
-    }
+    await codeFirstNumericPipeline(importMcQuestions, "[IMPORT CODE-FIRST]");
 
     for (const q of parsed.questions) {
       if (!q.question || (!q.correctAnswer && q.correctAnswerIndex === undefined)) {
@@ -1790,15 +1965,48 @@ IMPORTANT: Return correctAnswerIndex as a NUMBER (0, 1, 2, or 3), not the option
               Object.assign(wrongAnswerExplanations, parsed.wrongAnswerExplanations);
             }
 
-            if (hasOptions && parsed.explanation) {
-              const siFixed = deterministicNumericVerify(
-                String(parsed.explanation),
+            let codeChangedAnswer = false;
+            if (hasOptions && hasNumericOptions(q.options!)) {
+              const codeResult = codeSelectNumericAnswer(
+                resolvedAnswer,
                 q.options!.map((o: string) => String(o)),
                 resolvedAnswer
               );
-              if (siFixed) {
-                console.warn(`[AI REVISE SI VERIFY] Q${idx + 1}: Correcting "${resolvedAnswer}" -> "${siFixed}"`);
-                resolvedAnswer = siFixed;
+              if (codeResult && codeResult.wasChanged) {
+                console.warn(`[AI REVISE CODE-FIRST] Q${idx + 1}: Correcting "${resolvedAnswer}" -> "${codeResult.selectedAnswer}"`);
+                resolvedAnswer = codeResult.selectedAnswer;
+                codeChangedAnswer = true;
+              }
+              if (!codeResult && parsed.explanation) {
+                const extractedAnswer = extractAnswerValueFromExplanation(
+                  String(parsed.explanation),
+                  q.options!.map((o: string) => String(o))
+                );
+                if (extractedAnswer && extractedAnswer !== resolvedAnswer) {
+                  console.warn(`[AI REVISE EXTRACT] Q${idx + 1}: Explanation suggests "${extractedAnswer}" instead of "${resolvedAnswer}"`);
+                  resolvedAnswer = extractedAnswer;
+                  codeChangedAnswer = true;
+                }
+              }
+            }
+
+            let finalExplanation = parsed.explanation;
+            let finalWrongExplanations = wrongAnswerExplanations;
+
+            if (codeChangedAnswer && hasOptions) {
+              const newIdx = q.options!.indexOf(resolvedAnswer);
+              if (newIdx !== -1) {
+                const explResult = await generateExplanationForAnswer(
+                  String(q.question),
+                  q.options!.map((o: string) => String(o)),
+                  resolvedAnswer,
+                  newIdx,
+                );
+                if (explResult) {
+                  finalExplanation = explResult.explanation;
+                  finalWrongExplanations = explResult.wrongAnswerExplanations;
+                  console.log(`[AI REVISE] Q${idx + 1}: Regenerated explanation for code-selected answer "${resolvedAnswer}"`);
+                }
               }
             }
 
@@ -1813,8 +2021,8 @@ IMPORTANT: Return correctAnswerIndex as a NUMBER (0, 1, 2, or 3), not the option
               ...q,
               ...(mode === "full" && parsed.question ? { question: parsed.question } : {}),
               correctAnswer: resolvedAnswer,
-              explanation: parsed.explanation,
-              wrongAnswerExplanations,
+              explanation: finalExplanation,
+              wrongAnswerExplanations: finalWrongExplanations,
             };
           },
           {
