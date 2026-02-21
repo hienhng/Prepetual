@@ -49,6 +49,8 @@ import { FileUpload } from "@/components/file-upload";
 import { useQuiz } from "@/lib/quiz-context";
 import { useAuth } from "@/hooks/useAuth";
 import { useAuthDialog } from "@/lib/auth-context";
+import { ThemeToggle } from "@/components/theme-toggle";
+import logoImage from "@assets/image_1765894870887.png";
 import {
   motion,
   useScroll,
@@ -2802,7 +2804,33 @@ export default function Home() {
 
   return (
     <div className="min-h-screen overflow-hidden">
-      <section className="relative pb-8 md:pb-16 overflow-hidden">
+      <header className="fixed top-0 left-0 right-0 z-50 w-full flex justify-center pt-4 px-4">
+        <div className="flex items-center justify-between gap-4 h-12 px-5 rounded-full border border-border/40 bg-background/50 backdrop-blur-md shadow-sm max-w-4xl w-full">
+          <Link href="/" className="flex items-center gap-2" data-testid="link-logo">
+            <img 
+              src={logoImage} 
+              alt="Prepetual Logo" 
+              className="w-8 h-8 rounded-full object-cover"
+            />
+            <span className="pb-0.5 text-lg font-brand text-foreground hidden sm:inline">prepetual</span>
+          </Link>
+          <div className="flex items-center gap-1.5">
+            <ThemeToggle />
+            {!isLoading && (
+              <>
+                <Button variant="ghost" size="sm" onClick={openLoginDialog} data-testid="button-login">
+                  Log in
+                </Button>
+                <Button variant="default" size="sm" onClick={openSignUpDialog} data-testid="button-signup">
+                  Sign up
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <section className="relative pb-8 md:pb-16 overflow-hidden pt-20">
         <div className="absolute inset-0 pointer-events-none">
           <motion.div
             className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full bg-primary/8 blur-[120px]"

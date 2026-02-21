@@ -153,7 +153,7 @@ function PublicHeader() {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 w-full flex justify-center pt-4 px-4">
-      <div className="flex items-center justify-between gap-4 h-12 px-5 rounded-full border border-border/40 bg-background/50 backdrop-blur-md shadow-sm max-w-2xl w-full">
+      <div className="flex items-center justify-between gap-4 h-12 px-5 rounded-full border border-border/40 bg-background/50 backdrop-blur-md shadow-sm max-w-4xl w-full">
         <Link href="/" className="flex items-center gap-2" data-testid="link-logo">
           <img 
             src={logoImage} 
@@ -313,9 +313,20 @@ function PublicLayout() {
   const [location] = useLocation();
   const showFooter = location === "/about" || location === "/terms" || location === "/privacy" || location === "/contact";
   const isAuthPage = location === "/auth";
+  const isHomePage = location === "/";
 
   if (isAuthPage) {
     return <PublicRouter />;
+  }
+
+  if (isHomePage) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <main className="flex-1">
+          <PublicRouter />
+        </main>
+      </div>
+    );
   }
 
   return (
