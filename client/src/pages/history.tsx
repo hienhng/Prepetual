@@ -107,13 +107,13 @@ export default function HistoryPage() {
     mutationFn: async ({ quizId, isPublic }: { quizId: string; isPublic: boolean }) => {
       return apiRequest("PUT", `/api/quiz/${quizId}`, { isPublic });
     },
-    onSuccess: (_, { isPublic }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/quizzes"] });
+    onSuccess: async (_, { isPublic }) => {
+      await queryClient.refetchQueries({ queryKey: ["/api/quizzes"] });
       queryClient.invalidateQueries({ queryKey: ["/api/public-quizzes"] });
       toast({
         title: isPublic ? "Quiz shared" : "Quiz hidden",
         description: isPublic
-          ? "Your quiz is now visible in the community feed."
+          ? "Your quiz is now visible on the Discover page."
           : "Your quiz is now private."
       });
     },
