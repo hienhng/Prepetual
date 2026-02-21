@@ -2867,7 +2867,7 @@ export default function Home() {
           />
         </div>
 
-        <div className="w-full relative z-0">
+        <div className="w-full relative z-0 mt-16">
           <BeforeAfterSlider />
         </div>
 
