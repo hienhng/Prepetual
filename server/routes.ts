@@ -7,7 +7,7 @@ import multer from "multer";
 import { createWorker } from "tesseract.js";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import { parseOffice } from "officeparser";
-import { generateQuizQuestions, importExistingQuiz, quizChatResponse, classifyImages, reviseQuizQuestions } from "./openai";
+import { generateQuizQuestions, importExistingQuiz, quizChatResponse, classifyImages, reviseQuizQuestions, convertQuestionType } from "./openai";
 import { generateQuizRequestSchema, submitQuizRequestSchema } from "@shared/schema";
 import type { Question, DifficultyLevel } from "@shared/schema";
 import { createJob, getJob, storeBuffer, processJob, deleteJob } from "./upload-jobs";
@@ -1132,6 +1132,50 @@ Format with bullet points for easy reading. Keep it under 500 words.`
       console.error("AI revise error:", error);
       res.status(500).json({
         message: error instanceof Error ? error.message : "Failed to revise quiz",
+      });
+    }
+  });
+
+  app.post("/api/quiz/:id/convert-question-type", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      const quiz = await storage.getQuiz(id);
+      if (!quiz) {
+        return res.status(404).json({ message: "Quiz not found" });
+      }
+      if (quiz.userId && quiz.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { questionIndex, newType } = req.body;
+      const allQuestions = quiz.questions as Question[];
+
+      if (typeof questionIndex !== "number" || questionIndex < 0 || questionIndex >= allQuestions.length) {
+        return res.status(400).json({ message: "Invalid question index" });
+      }
+      if (!["multiple_choice", "true_false", "short_answer"].includes(newType)) {
+        return res.status(400).json({ message: "Invalid question type" });
+      }
+
+      const converted = await convertQuestionType({
+        question: allQuestions[questionIndex],
+        newType,
+        sourceText: quiz.sourceText,
+      });
+
+      allQuestions[questionIndex] = converted;
+
+      const updatedQuiz = await storage.updateQuiz(id, { questions: allQuestions });
+
+      res.json({
+        ...updatedQuiz,
+        createdAt: updatedQuiz!.createdAt.toISOString(),
+      });
+    } catch (error) {
+      console.error("Convert question type error:", error);
+      res.status(500).json({
+        message: error instanceof Error ? error.message : "Failed to convert question type",
       });
     }
   });

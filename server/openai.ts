@@ -1521,3 +1521,94 @@ Independently solve this and determine which option is actually correct. Show yo
   return revisedQuestions;
 }
 
+export async function convertQuestionType(params: {
+  question: Question;
+  newType: QuestionType;
+  sourceText?: string;
+}): Promise<Question> {
+  const { question, newType, sourceText } = params;
+
+  const typeLabels: Record<string, string> = {
+    multiple_choice: "multiple choice (4 options)",
+    true_false: "true/false",
+    short_answer: "short answer",
+  };
+
+  const formatInstructions: Record<string, string> = {
+    multiple_choice: `"options": ["Option A", "Option B", "Option C", "Option D"], "correctAnswer": "the correct option text"`,
+    true_false: `"options": ["True", "False"], "correctAnswer": "True" or "False"`,
+    short_answer: `"options": null, "correctAnswer": "the correct short answer"`,
+  };
+
+  const systemPrompt = `You are an expert quiz question converter. Convert the given question into a ${typeLabels[newType]} question while preserving the same topic, concept, and difficulty level.
+
+CRITICAL RULES:
+- LANGUAGE: Write ALL output in the SAME language as the original question
+- The converted question must test the same concept/knowledge as the original
+- Write a clear, unambiguous question appropriate for the target type
+- Provide a thorough explanation
+${newType === "true_false" ? "- For true/false: create a clear statement that is unambiguously true or false. correctAnswer MUST be exactly \"True\" or \"False\"" : ""}
+${newType === "multiple_choice" ? "- For multiple choice: create 4 plausible options of similar length. Include common misconceptions as distractors" : ""}
+${newType === "short_answer" ? "- For short answer: ensure the answer is a concise, specific term or phrase" : ""}
+
+Respond in valid JSON:
+{
+  "question": "the converted question text",
+  ${formatInstructions[newType]},
+  "explanation": "detailed explanation of the correct answer"
+}`;
+
+  const userPrompt = `Convert this ${typeLabels[question.type]} question into a ${typeLabels[newType]} question:
+
+Question: ${question.question}
+${question.options ? `Current Options: ${JSON.stringify(question.options)}` : ""}
+Current Answer: ${question.correctAnswer}
+${question.explanation ? `Explanation: ${question.explanation}` : ""}
+${sourceText ? `\nSource material (for context): ${sourceText.substring(0, 2000)}` : ""}
+
+Write in the SAME language as the question above.`;
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4.1",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.3,
+    max_tokens: 1500,
+    response_format: { type: "json_object" },
+  });
+
+  const content = completion.choices[0]?.message?.content;
+  if (!content) throw new Error("No response from AI");
+
+  const parsed = JSON.parse(content);
+
+  let correctAnswer = String(parsed.correctAnswer).trim();
+  let options: string[] | undefined;
+
+  if (newType === "true_false") {
+    options = ["True", "False"];
+    const lower = correctAnswer.toLowerCase();
+    if (["true", "t", "yes", "đúng", "correct", "right"].includes(lower)) {
+      correctAnswer = "True";
+    } else {
+      correctAnswer = "False";
+    }
+  } else if (newType === "multiple_choice") {
+    options = Array.isArray(parsed.options) ? parsed.options.map((o: any) => String(o).trim()) : undefined;
+  } else {
+    options = undefined;
+  }
+
+  return {
+    ...question,
+    type: newType,
+    question: String(parsed.question).trim(),
+    options,
+    correctAnswer,
+    explanation: parsed.explanation ? String(parsed.explanation).trim() : question.explanation,
+    wrongAnswerExplanations: undefined,
+  };
+}
+

@@ -6,7 +6,7 @@ import {
   Copy, ArrowUp, ArrowDown, Eye, EyeOff, CheckSquare, Square,
   Search, Filter, MoreHorizontal, GripVertical, Shuffle,
   ChevronLeft, ChevronRight, FileText, ListChecks, ToggleLeft,
-  ImagePlus, Image as ImageIcon, Sparkles, Loader2
+  ImagePlus, Image as ImageIcon, Sparkles, Loader2, PenLine, Wand2
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -62,6 +62,8 @@ export default function EditQuizPage() {
   const [reviseDialogIndex, setReviseDialogIndex] = useState<number | null>(null);
   const [reviseSelectedAnswer, setReviseSelectedAnswer] = useState<string>("");
   const [previewIndex, setPreviewIndex] = useState(0);
+  const [typeChangeDialog, setTypeChangeDialog] = useState<{ index: number; newType: QuestionType } | null>(null);
+  const [isConverting, setIsConverting] = useState<number | null>(null);
 
   useEffect(() => {
     if (currentQuiz) {
@@ -320,6 +322,44 @@ export default function EditQuizPage() {
     }
   };
 
+  const applyManualTypeChange = (index: number, newType: QuestionType) => {
+    handleQuestionChange(index, "type", newType);
+    if (newType === "true_false") {
+      handleQuestionChange(index, "options", ["True", "False"]);
+      handleQuestionChange(index, "correctAnswer", "True");
+    } else if (newType === "multiple_choice") {
+      const q = questions[index];
+      if (!q.options || q.options.length < 2) {
+        handleQuestionChange(index, "options", ["Option 1", "Option 2", "Option 3", "Option 4"]);
+        handleQuestionChange(index, "correctAnswer", "Option 1");
+      }
+    } else if (newType === "short_answer") {
+      handleQuestionChange(index, "options", undefined);
+    }
+  };
+
+  const handleAiConvertType = async () => {
+    if (!typeChangeDialog) return;
+    const { index, newType } = typeChangeDialog;
+    setTypeChangeDialog(null);
+    setIsConverting(index);
+    try {
+      const response = await apiRequest("POST", `/api/quiz/${currentQuiz.id}/convert-question-type`, {
+        questionIndex: index,
+        newType,
+      });
+      const updatedQuiz = await response.json();
+      setQuestions(updatedQuiz.questions);
+      setCurrentQuiz(updatedQuiz);
+      queryClient.invalidateQueries({ queryKey: ["/api/quizzes"] });
+      toast({ title: "Question converted", description: `Converted to ${newType.replace("_", " ")} using AI` });
+    } catch (error) {
+      toast({ title: "Conversion failed", description: "Something went wrong. Please try again.", variant: "destructive" });
+    } finally {
+      setIsConverting(null);
+    }
+  };
+
   const handleStartQuiz = async () => {
     const saved = await handleSave();
     if (saved) {
@@ -537,7 +577,7 @@ export default function EditQuizPage() {
                     return (
                       <Card 
                         key={question.id} 
-                        className={`transition-all ${selectedQuestions.has(question.id) ? "ring-2 ring-primary" : ""} ${isRevising === index ? "opacity-60 pointer-events-none" : ""}`}
+                        className={`transition-all ${selectedQuestions.has(question.id) ? "ring-2 ring-primary" : ""} ${isRevising === index || isConverting === index ? "opacity-60 pointer-events-none" : ""}`}
                         data-testid={`card-question-${index}`}
                       >
                         <CardHeader className="py-3 px-4">
@@ -556,7 +596,7 @@ export default function EditQuizPage() {
                                 {getTypeLabel(question.type)}
                               </Badge>
                               <span className="text-sm text-muted-foreground shrink-0">
-                                {isRevising === index ? <Loader2 className="h-3.5 w-3.5 animate-spin inline" /> : `Q${index + 1}`}
+                                {isRevising === index || isConverting === index ? <Loader2 className="h-3.5 w-3.5 animate-spin inline" /> : `Q${index + 1}`}
                               </span>
                               {question.imageUrl && (
                                 <ImageIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -647,16 +687,8 @@ export default function EditQuizPage() {
                                     <Select
                                       value={question.type}
                                       onValueChange={(value: QuestionType) => {
-                                        handleQuestionChange(index, "type", value);
-                                        if (value === "true_false") {
-                                          handleQuestionChange(index, "options", ["True", "False"]);
-                                          handleQuestionChange(index, "correctAnswer", "True");
-                                        } else if (value === "multiple_choice" && (!question.options || question.options.length < 2)) {
-                                          handleQuestionChange(index, "options", ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"]);
-                                          handleQuestionChange(index, "correctAnswer", "A) Option 1");
-                                        } else if (value === "short_answer") {
-                                          handleQuestionChange(index, "options", undefined);
-                                        }
+                                        if (value === question.type) return;
+                                        setTypeChangeDialog({ index: getQuestionIndex(question), newType: value });
                                       }}
                                     >
                                       <SelectTrigger data-testid={`select-type-${index}`}>
@@ -1057,6 +1089,52 @@ export default function EditQuizPage() {
               <Sparkles className="h-4 w-4 mr-1" />
               Revise with AI
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={typeChangeDialog !== null} onOpenChange={(open) => { if (!open) setTypeChangeDialog(null); }}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base">Change question type</AlertDialogTitle>
+            <AlertDialogDescription>
+              How would you like to convert this question to {typeChangeDialog?.newType === "multiple_choice" ? "multiple choice" : typeChangeDialog?.newType === "true_false" ? "true/false" : "short answer"}?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex flex-col gap-2 py-2">
+            <Button
+              variant="outline"
+              className="justify-start gap-3 h-auto py-3 px-4"
+              onClick={() => {
+                if (typeChangeDialog) {
+                  applyManualTypeChange(typeChangeDialog.index, typeChangeDialog.newType);
+                  setTypeChangeDialog(null);
+                  toast({ title: "Type changed", description: "Edit the question content manually" });
+                }
+              }}
+              data-testid="button-manual-type-change"
+            >
+              <PenLine className="h-4 w-4 shrink-0" />
+              <div className="text-left">
+                <p className="text-sm font-medium">Write manually</p>
+                <p className="text-xs text-muted-foreground">Change the type and edit it yourself</p>
+              </div>
+            </Button>
+            <Button
+              variant="outline"
+              className="justify-start gap-3 h-auto py-3 px-4"
+              onClick={handleAiConvertType}
+              data-testid="button-ai-type-change"
+            >
+              <Wand2 className="h-4 w-4 shrink-0" />
+              <div className="text-left">
+                <p className="text-sm font-medium">Generate with AI</p>
+                <p className="text-xs text-muted-foreground">AI rewrites the question for the new type</p>
+              </div>
+            </Button>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
