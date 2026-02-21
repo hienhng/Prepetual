@@ -152,24 +152,24 @@ function PublicHeader() {
   const { openLoginDialog, openSignUpDialog } = useAuthDialog();
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto px-4 h-16 flex items-center justify-between gap-4">
+    <header className="fixed top-0 left-0 right-0 z-50 w-full flex justify-center pt-4 px-4">
+      <div className="flex items-center justify-between gap-4 h-12 px-5 rounded-full border border-border/40 bg-background/50 backdrop-blur-md shadow-sm max-w-2xl w-full">
         <Link href="/" className="flex items-center gap-2" data-testid="link-logo">
           <img 
             src={logoImage} 
             alt="Prepetual Logo" 
-            className="w-9 h-9 rounded-full object-cover"
+            className="w-8 h-8 rounded-full object-cover"
           />
-          <span className="pb-1 text-xl font-brand text-foreground hidden sm:inline">prepetual</span>
+          <span className="pb-0.5 text-lg font-brand text-foreground hidden sm:inline">prepetual</span>
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <ThemeToggle />
           {!isLoading && (
             <>
-              <Button variant="ghost" onClick={openLoginDialog} data-testid="button-login">
+              <Button variant="ghost" size="sm" onClick={openLoginDialog} data-testid="button-login">
                 Log in
               </Button>
-              <Button variant="default" onClick={openSignUpDialog} data-testid="button-signup">
+              <Button variant="default" size="sm" onClick={openSignUpDialog} data-testid="button-signup">
                 Sign up
               </Button>
             </>
