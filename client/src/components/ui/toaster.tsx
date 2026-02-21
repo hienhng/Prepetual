@@ -24,13 +24,13 @@ export function Toaster() {
   }
 
   return (
-    <ToastProvider>
+    <ToastProvider swipeDirection="up">
       {toasts.map(function ({ id, title, description, action, variant, ...props }) {
         return (
           <Toast key={id} variant={variant} {...props}>
-            <div className="flex items-start gap-3">
+            <div className="flex items-center gap-2.5">
               {getIcon(variant || undefined)}
-              <div className="grid gap-1">
+              <div className="flex items-center gap-1.5">
                 {title && <ToastTitle>{title}</ToastTitle>}
                 {description && (
                   <ToastDescription>{description}</ToastDescription>
