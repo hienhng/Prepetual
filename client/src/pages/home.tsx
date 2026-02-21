@@ -1020,7 +1020,7 @@ function BeforeAfterSlider() {
   return (
     <div className="relative w-full">
       <motion.div
-        className="relative w-full h-[280px] sm:h-[340px] md:h-[380px] lg:h-[420px] overflow-hidden select-none touch-none"
+        className="relative w-full h-[340px] sm:h-[400px] md:h-[440px] lg:h-[480px] overflow-hidden select-none touch-none"
         ref={containerRef}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -2867,7 +2867,7 @@ export default function Home() {
           />
         </div>
 
-        <div className="w-full relative z-0 mt-16">
+        <div className="w-full relative z-0">
           <BeforeAfterSlider />
         </div>
 
