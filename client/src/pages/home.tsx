@@ -675,7 +675,7 @@ function PrepetualQuizPlayer() {
       <div className="px-5 pt-4 pb-2.5 border-b border-border/30 bg-background/80 backdrop-blur-sm">
         <div className="flex items-center justify-between mb-2.5">
           <span className="font-brand text-[13px] font-bold text-primary tracking-tight">
-            Prepetual
+            prepetual
           </span>
         </div>
         <div className="h-1 bg-muted/80 rounded-full overflow-hidden">
