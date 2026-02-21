@@ -147,8 +147,6 @@ function parseNumericWithUnit(text: string): { value: number; unit: string; siVa
   };
 }
 
-const UNIT_PATTERN_STR = 'kg|g|mg|tấn|ton|m\\/s|km\\/h|cm\\/s|rad\\/s|m²|cm²|dm²|km²|m2|cm2|m³|cm³|dm³|m3|cm3|km|dm|cm|mm|ml|kPa|MPa|kpa|mpa|Pa|pa|atm|bar|kHz|MHz|hz|khz|mhz|Hz|kV|mV|kv|mv|mA|ma|kΩ|kω|kohm|Ω|ω|ohm|kW|mW|kw|mw|kJ|MJ|kj|mj|kcal|cal|kN|kn|ms|min|m|s|h|l|J|j|N|n|V|v|A|a|W|w';
-
 function codeSelectNumericAnswer(
   aiComputedAnswer: string,
   options: string[],
@@ -205,81 +203,6 @@ function codeSelectNumericAnswer(
   }
 
   return null;
-}
-
-function extractAnswerValueFromExplanation(explanation: string, options: string[]): string | null {
-  if (!explanation) return null;
-
-  const parsedOptions = options.map(opt => ({
-    text: opt,
-    parsed: parseNumericWithUnit(opt),
-  }));
-  const numericOptions = parsedOptions.filter(o => o.parsed !== null);
-  if (numericOptions.length < 2) return null;
-
-  const siUnitGroups = new Map<string, typeof numericOptions>();
-  for (const opt of numericOptions) {
-    const su = opt.parsed!.siUnit;
-    if (!siUnitGroups.has(su)) siUnitGroups.set(su, []);
-    siUnitGroups.get(su)!.push(opt);
-  }
-  const largestGroup = Array.from(siUnitGroups.entries()).sort((a, b) => b[1].length - a[1].length)[0];
-  if (!largestGroup || largestGroup[1].length < 2) return null;
-  const targetSiUnit = largestGroup[0];
-
-  const keywordPattern = new RegExp(
-    `(?:=|→|≈|≃|kết quả|result|answer|equals|is|được|bằng|therefore|so|thus|hence|vậy|nên|suy ra)\\s*([+-]?\\d+(?:[.,]\\d+)?(?:[eE][+-]?\\d+)?)\\s*(${UNIT_PATTERN_STR})(?:\\b|(?=[^a-zA-Z]))`,
-    'gi'
-  );
-  const genericPattern = new RegExp(
-    `([+-]?\\d+(?:[.,]\\d+)?(?:[eE][+-]?\\d+)?)\\s*(${UNIT_PATTERN_STR})(?:\\b|(?=[^a-zA-Z]))`,
-    'gi'
-  );
-
-  const matches: Array<{ value: number; unit: string }> = [];
-  let m;
-  while ((m = keywordPattern.exec(explanation)) !== null) {
-    const val = parseFloat(m[1].replace(',', '.'));
-    if (!isNaN(val)) matches.push({ value: val, unit: m[2] });
-  }
-  if (matches.length === 0) {
-    while ((m = genericPattern.exec(explanation)) !== null) {
-      const val = parseFloat(m[1].replace(',', '.'));
-      if (!isNaN(val)) matches.push({ value: val, unit: m[2] });
-    }
-  }
-  if (matches.length === 0) return null;
-
-  let explanationSiValue: number | null = null;
-  for (let i = matches.length - 1; i >= 0; i--) {
-    const unitLower = matches[i].unit.toLowerCase();
-    const conversion = SI_CONVERSION_TABLE[unitLower] || SI_CONVERSION_TABLE[matches[i].unit];
-    if (conversion && conversion.siUnit === targetSiUnit) {
-      explanationSiValue = matches[i].value * conversion.factor;
-      break;
-    }
-  }
-  if (explanationSiValue === null) {
-    const lastMatch = matches[matches.length - 1];
-    const unitLower = lastMatch.unit.toLowerCase();
-    const conversion = SI_CONVERSION_TABLE[unitLower] || SI_CONVERSION_TABLE[lastMatch.unit];
-    if (!conversion) return null;
-    explanationSiValue = lastMatch.value * conversion.factor;
-  }
-
-  const TOLERANCE = 1e-4;
-  let bestMatch: string | null = null;
-  let bestDiff = Infinity;
-  for (const opt of numericOptions) {
-    if (opt.parsed!.siUnit !== targetSiUnit) continue;
-    const diff = Math.abs(opt.parsed!.siValue - explanationSiValue);
-    const relativeDiff = explanationSiValue !== 0 ? diff / Math.abs(explanationSiValue) : diff;
-    if (relativeDiff < TOLERANCE && relativeDiff < bestDiff) {
-      bestDiff = relativeDiff;
-      bestMatch = opt.text;
-    }
-  }
-  return bestMatch;
 }
 
 async function generateExplanationForAnswer(
@@ -461,85 +384,6 @@ async function codeSelectNumericAnswersFromGeneration(mcQuestions: any[], logPre
   }
 }
 
-async function codeFirstNumericPipeline(mcQuestions: any[], logPrefix: string = "[CODE-FIRST]"): Promise<void> {
-  if (mcQuestions.length === 0) return;
-
-  const questionsNeedingExplanation: Array<{ q: any; correctIndex: number }> = [];
-
-  for (const q of mcQuestions) {
-    if (!q.correctAnswer || !Array.isArray(q.options) || q.options.length === 0) continue;
-
-    const options = q.options.map((o: any) => String(o).trim());
-    const currentAnswer = String(q.correctAnswer).trim();
-
-    if (!hasNumericOptions(options)) continue;
-
-    const aiComputedValue = q._aiComputedValue || currentAnswer;
-
-    const codeResult = codeSelectNumericAnswer(aiComputedValue, options, currentAnswer);
-
-    if (codeResult) {
-      if (codeResult.wasChanged) {
-        console.log(`${logPrefix} Code OVERRODE answer: "${currentAnswer}" → "${codeResult.selectedAnswer}" (AI computed: "${aiComputedValue}") for: "${String(q.question).substring(0, 60)}..."`);
-        q.correctAnswer = codeResult.selectedAnswer;
-        const idx = options.indexOf(codeResult.selectedAnswer);
-        if (idx !== -1) {
-          questionsNeedingExplanation.push({ q, correctIndex: idx });
-        }
-      }
-      continue;
-    }
-
-    if (q.explanation) {
-      const extractedAnswer = extractAnswerValueFromExplanation(String(q.explanation), options);
-      if (extractedAnswer) {
-        if (extractedAnswer !== currentAnswer) {
-          console.log(`${logPrefix} Explanation-extracted answer "${extractedAnswer}" overrides "${currentAnswer}" for: "${String(q.question).substring(0, 60)}..."`);
-          q.correctAnswer = extractedAnswer;
-          const idx = options.indexOf(extractedAnswer);
-          if (idx !== -1) {
-            questionsNeedingExplanation.push({ q, correctIndex: idx });
-          }
-        }
-        continue;
-      }
-    }
-
-    const currentParsed = parseNumericWithUnit(currentAnswer);
-    if (!currentParsed) {
-      console.warn(`${logPrefix} WARNING: Numeric options detected but code could not parse AI answer "${aiComputedValue}" — keeping AI selection for: "${String(q.question).substring(0, 60)}..."`);
-    }
-  }
-
-  if (questionsNeedingExplanation.length > 0) {
-    console.log(`${logPrefix} Generating explanations for ${questionsNeedingExplanation.length} code-corrected answers...`);
-    const explanationLimit = pLimit(3);
-    await Promise.all(
-      questionsNeedingExplanation.map(({ q, correctIndex }) =>
-        explanationLimit(async () => {
-          const result = await generateExplanationForAnswer(
-            String(q.question),
-            q.options.map((o: any) => String(o)),
-            String(q.correctAnswer),
-            correctIndex,
-          );
-          if (result) {
-            q.explanation = result.explanation;
-            if (Object.keys(result.wrongAnswerExplanations).length > 0) {
-              q.wrongAnswerExplanations = result.wrongAnswerExplanations;
-            }
-            console.log(`${logPrefix} New explanation generated for: "${String(q.question).substring(0, 60)}..."`);
-          }
-        })
-      )
-    );
-  }
-
-  for (const q of mcQuestions) {
-    delete q._aiComputedValue;
-  }
-}
-
 export type ImageClassification = {
   url: string;
   hasIllustrations: boolean;
@@ -656,79 +500,6 @@ Respond with ONLY valid JSON, no markdown or additional text.`;
     console.error("Error classifying images:", error);
     return imageUrls.slice(0, 6).map(url => ({ url, hasIllustrations: !isImageOnlyMode }));
   }
-}
-
-function normalizeValue(v: string): string {
-  return v.toLowerCase().replace(/,/g, ".").replace(/\s+/g, "").replace(/\.+$/, "");
-}
-
-function extractNumericParts(s: string): { number: string; unit: string } {
-  const norm = normalizeValue(s);
-  const match = norm.match(/^([0-9]*\.?[0-9]+)\s*(.*)$/);
-  if (match) {
-    return { number: match[1], unit: match[2] };
-  }
-  return { number: norm, unit: "" };
-}
-
-function stripOptionPrefix(s: string): string {
-  return s.replace(/^[A-Da-d]\)\s*/, "").trim();
-}
-
-function valuesMatch(a: string, b: string): boolean {
-  const cleanA = stripOptionPrefix(a);
-  const cleanB = stripOptionPrefix(b);
-  const normA = normalizeValue(cleanA);
-  const normB = normalizeValue(cleanB);
-  if (normA === normB) return true;
-
-  const partsA = extractNumericParts(cleanA);
-  const partsB = extractNumericParts(cleanB);
-
-  if (partsA.number && partsB.number) {
-    const numA = parseFloat(partsA.number);
-    const numB = parseFloat(partsB.number);
-    if (!isNaN(numA) && !isNaN(numB) && numA === numB) {
-      if (partsA.unit === partsB.unit || partsA.unit === "" || partsB.unit === "") {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-export function verifyAnswerMatchesExplanation(
-  explanation: string,
-  markedCorrect: string,
-  options: string[]
-): string | null {
-  const allMatches = explanation.match(/[=→⇒]\s*([0-9]+[.,]?[0-9]*)\s*(kg|g|m|cm|mm|km|m\/s|m\/s²|km\/h|s|n|j|w|v|a|hz|rad|mol|l|ml|°c|°f|k|pa|atm|ev|cal|%|nm|μm)?\.?(?=[\s,;.)⇒→=]|$)/gi);
-
-  if (!allMatches || allMatches.length === 0) return null;
-
-  const lastMatch = allMatches[allMatches.length - 1];
-  const conclusionRaw = lastMatch.replace(/^[=→⇒]\s*/, "").replace(/\.+$/, "").trim();
-
-  console.log(`[VERIFY] Explanation last conclusion: "${conclusionRaw}", markedCorrect: "${markedCorrect}"`);
-
-  if (valuesMatch(conclusionRaw, markedCorrect)) {
-    return null;
-  }
-
-  for (const opt of options) {
-    if (valuesMatch(conclusionRaw, opt) && opt !== markedCorrect) {
-      return opt;
-    }
-  }
-
-  const lastSentence = explanation.split(/[.!。]\s*/).filter(s => s.trim().length > 0).pop() || "";
-  for (const opt of options) {
-    if (opt !== markedCorrect && valuesMatch(lastSentence, opt)) {
-      return opt;
-    }
-  }
-
-  return null;
 }
 
 async function aiVerifyAnswers(mcQuestions: any[], logPrefix: string = "[AI VERIFY]"): Promise<void> {
@@ -1498,9 +1269,10 @@ OUTPUT FORMAT (JSON):
     {
       "type": "multiple_choice OR true_false OR short_answer",
       "question": "The exact question text as it appears",
-      "options": ["Option 1", "Option 2", "Option 3", "Option 4"], // For multiple_choice/true_false only. Extract exactly as they appear, but REMOVE any prefixes like "A) ", "1. ", "a. ", etc. For short_answer, omit this field or use empty array.
-      "correctAnswerIndex": 0, // The 0-based index of the correct option in the options array (0, 1, 2, or 3). For short_answer, use "correctAnswer" field instead.
+      "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+      "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text",
+      "computedValue": "Your raw computed answer with units for numeric questions, e.g. '0.05kg', '3600s'. Empty string for non-numeric.",
       "explanation": "Brief explanation of why this is the correct answer",
       "wrongAnswerExplanations": {
         "Option 1": "Why this option is incorrect",
@@ -1510,7 +1282,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number 0-3) instead of "correctAnswer" text. This prevents text-matching errors. For short_answer questions, use "correctAnswer" text.
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number 0-3) instead of "correctAnswer" text. For short_answer questions, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computedValue" with your raw calculated result.
 
 Respond with ONLY valid JSON, no markdown or additional text.`;
 
@@ -1558,9 +1330,10 @@ OUTPUT FORMAT (JSON):
     {
       "type": "multiple_choice OR true_false OR short_answer",
       "question": "The exact question text as it appears",
-      "options": ["Option 1", "Option 2", "Option 3", "Option 4"], // For multiple_choice/true_false only. Extract exactly as they appear, but REMOVE any prefixes. For short_answer, omit this field or use empty array.
-      "correctAnswerIndex": 0, // The 0-based index of the correct option in the options array (0, 1, 2, or 3). For short_answer, use "correctAnswer" field instead.
+      "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+      "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text",
+      "computedValue": "Your raw computed answer with units for numeric questions, e.g. '0.05kg', '3600s'. Empty string for non-numeric.",
       "explanation": "Brief explanation of why this is the correct answer",
       "wrongAnswerExplanations": {
         "Option 1": "Why this option is incorrect",
@@ -1570,7 +1343,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number 0-3) instead of "correctAnswer" text. This prevents text-matching errors. For short_answer questions, use "correctAnswer" text.
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number 0-3) instead of "correctAnswer" text. For short_answer questions, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computedValue" with your raw calculated result.
 
 Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
 
@@ -1658,9 +1431,18 @@ Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
       q.correctAnswer && Array.isArray(q.options) && q.options.length > 0
     );
 
-    await aiVerifyAnswers(importMcQuestions, "[IMPORT AI VERIFY]");
+    const importNumericMc = importMcQuestions.filter((q: any) => hasNumericOptions(q.options.map((o: any) => String(o))));
+    const importNonNumericMc = importMcQuestions.filter((q: any) => !hasNumericOptions(q.options.map((o: any) => String(o))));
 
-    await codeFirstNumericPipeline(importMcQuestions, "[IMPORT CODE-FIRST]");
+    if (importNumericMc.length > 0) {
+      console.log(`[IMPORT] ${importNumericMc.length} numeric questions — code will select answers deterministically`);
+      await codeSelectNumericAnswersFromGeneration(importNumericMc, "[IMPORT CODE-SELECT]");
+    }
+
+    if (importNonNumericMc.length > 0) {
+      console.log(`[IMPORT] ${importNonNumericMc.length} non-numeric questions — using AI verify`);
+      await aiVerifyAnswers(importNonNumericMc, "[IMPORT AI VERIFY]");
+    }
 
     for (const q of parsed.questions) {
       if (!q.question || (!q.correctAnswer && q.correctAnswerIndex === undefined)) {
@@ -1985,6 +1767,7 @@ ${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 Respond in valid JSON:
 {
   "correctAnswerIndex": 0,
+  "computedValue": "Your raw computed answer with units for numeric questions, e.g. '0.05kg', '3600s'. Empty string for non-numeric.",
   "explanation": "step-by-step solution showing how you arrived at the answer",
   "optionExplanations": {
     "0": "why option 0 is correct/incorrect",
@@ -2089,26 +1872,22 @@ IMPORTANT: Return correctAnswerIndex as a NUMBER (0, 1, 2, or 3), not the option
 
             let codeChangedAnswer = false;
             if (hasOptions && hasNumericOptions(q.options!)) {
+              const aiComputedVal = parsed.computedValue ? String(parsed.computedValue).trim() : resolvedAnswer;
               const codeResult = codeSelectNumericAnswer(
-                resolvedAnswer,
+                aiComputedVal,
                 q.options!.map((o: string) => String(o)),
                 resolvedAnswer
               );
-              if (codeResult && codeResult.wasChanged) {
-                console.warn(`[AI REVISE CODE-FIRST] Q${idx + 1}: Correcting "${resolvedAnswer}" -> "${codeResult.selectedAnswer}"`);
-                resolvedAnswer = codeResult.selectedAnswer;
-                codeChangedAnswer = true;
-              }
-              if (!codeResult && parsed.explanation) {
-                const extractedAnswer = extractAnswerValueFromExplanation(
-                  String(parsed.explanation),
-                  q.options!.map((o: string) => String(o))
-                );
-                if (extractedAnswer && extractedAnswer !== resolvedAnswer) {
-                  console.warn(`[AI REVISE EXTRACT] Q${idx + 1}: Explanation suggests "${extractedAnswer}" instead of "${resolvedAnswer}"`);
-                  resolvedAnswer = extractedAnswer;
+              if (codeResult) {
+                if (codeResult.wasChanged) {
+                  console.warn(`[AI REVISE CODE-SELECT] Q${idx + 1}: Code selected "${codeResult.selectedAnswer}" (AI chose "${resolvedAnswer}", computedValue: "${aiComputedVal}")`);
+                  resolvedAnswer = codeResult.selectedAnswer;
                   codeChangedAnswer = true;
+                } else {
+                  console.log(`[AI REVISE CODE-SELECT] Q${idx + 1}: Code confirmed "${resolvedAnswer}"`);
                 }
+              } else {
+                console.warn(`[AI REVISE CODE-SELECT] Q${idx + 1}: Could not parse computedValue "${aiComputedVal}" — keeping AI selection`);
               }
             }
 
