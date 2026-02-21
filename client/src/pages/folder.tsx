@@ -45,6 +45,7 @@ export default function FolderPage() {
   const { setCurrentQuiz, setSourceMaterial, savedProgresses, loadSavedProgress } = useQuiz();
   const { toast } = useToast();
   const [quizToDelete, setQuizToDelete] = useState<QuizWithAttempts | null>(null);
+  const [quizToPost, setQuizToPost] = useState<QuizWithAttempts | null>(null);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [deleteFolderConfirm, setDeleteFolderConfirm] = useState(false);
@@ -94,10 +95,11 @@ export default function FolderPage() {
     onSuccess: (_, { isPublic }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/quizzes"] });
       queryClient.invalidateQueries({ queryKey: ["/api/public-quizzes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/folders", folderId] });
       toast({
         title: isPublic ? "Quiz shared" : "Quiz hidden",
         description: isPublic
-          ? "Your quiz is now visible in the community feed."
+          ? "Your quiz is now visible in the Discover page."
           : "Your quiz is now private."
       });
     },
@@ -498,10 +500,13 @@ export default function FolderPage() {
                               Edit
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => togglePublicMutation.mutate({
-                                quizId: quiz.id,
-                                isPublic: quiz.isPublic !== 1
-                              })}
+                              onClick={() => {
+                                if (quiz.isPublic === 1) {
+                                  togglePublicMutation.mutate({ quizId: quiz.id, isPublic: false });
+                                } else {
+                                  setQuizToPost(quiz);
+                                }
+                              }}
                               data-testid={`button-toggle-public-${quiz.id}`}
                             >
                               {quiz.isPublic === 1 ? (
@@ -654,6 +659,37 @@ export default function FolderPage() {
                 <Trash2 className="h-4 w-4 mr-2" />
               )}
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!quizToPost} onOpenChange={(open) => !open && setQuizToPost(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Share to Discover</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to post "{quizToPost?.title}" to the Discover page? It will be visible to everyone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-post">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (quizToPost) {
+                  togglePublicMutation.mutate({ quizId: quizToPost.id, isPublic: true });
+                  setQuizToPost(null);
+                }
+              }}
+              disabled={togglePublicMutation.isPending}
+              data-testid="button-confirm-post"
+            >
+              {togglePublicMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Globe className="h-4 w-4 mr-2" />
+              )}
+              Share
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

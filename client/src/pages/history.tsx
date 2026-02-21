@@ -57,6 +57,7 @@ export default function HistoryPage() {
   const [folderName, setFolderName] = useState("");
   const [editingFolder, setEditingFolder] = useState<FolderType | null>(null);
   const [folderToDelete, setFolderToDelete] = useState<FolderType | null>(null);
+  const [quizToPost, setQuizToPost] = useState<QuizWithAttempts | null>(null);
   const [activeTab, setActiveTab] = useState("quizzes");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -485,10 +486,13 @@ export default function HistoryPage() {
                                 Edit
                               </DropdownMenuItem>
                               <DropdownMenuItem
-                                onClick={() => togglePublicMutation.mutate({
-                                  quizId: quiz.id,
-                                  isPublic: quiz.isPublic !== 1
-                                })}
+                                onClick={() => {
+                                  if (quiz.isPublic === 1) {
+                                    togglePublicMutation.mutate({ quizId: quiz.id, isPublic: false });
+                                  } else {
+                                    setQuizToPost(quiz);
+                                  }
+                                }}
                                 data-testid={`button-toggle-public-${quiz.id}`}
                               >
                                 {quiz.isPublic === 1 ? (
@@ -737,6 +741,37 @@ export default function HistoryPage() {
                 <Trash2 className="h-4 w-4 mr-2" />
               )}
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!quizToPost} onOpenChange={(open) => !open && setQuizToPost(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Share to Discover</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to post "{quizToPost?.title}" to the Discover page? It will be visible to everyone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-post">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (quizToPost) {
+                  togglePublicMutation.mutate({ quizId: quizToPost.id, isPublic: true });
+                  setQuizToPost(null);
+                }
+              }}
+              disabled={togglePublicMutation.isPending}
+              data-testid="button-confirm-post"
+            >
+              {togglePublicMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Globe className="h-4 w-4 mr-2" />
+              )}
+              Share
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
