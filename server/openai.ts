@@ -320,13 +320,15 @@ DO NOT question or change this answer. Just explain WHY it is correct.
 
 INSTRUCTIONS:
 - Write in the SAME language as the question
-- For math/science: show the full step-by-step calculation that leads to "${correctAnswer}"
-- For each wrong option, explain what specific error or misconception would lead to that value
-- Keep explanations clear and educational
+- Explain the underlying concept, theory, or principle being tested (e.g., "Newton's Second Law states that F = ma")
+- For math/science: write out the relevant formula/equation first, then substitute values and show every calculation step leading to "${correctAnswer}"
+- For non-math questions: explain WHY the answer is correct by referencing the concept, definition, or rule — not just stating that it is correct
+- For each wrong option, explain the specific misconception, error, or confusion that would lead to choosing it
+- Be thorough and educational — the student should learn something from reading the explanation
 
 Respond in JSON:
 {
-  "explanation": "Step-by-step explanation of why the correct answer is right",
+  "explanation": "Explain the concept/principle, write out the relevant equation or definition, then show the step-by-step reasoning or calculation",
   "wrongAnswerExplanations": {
     "wrong option text": "why this is incorrect"
   }
@@ -633,7 +635,7 @@ STEP-BY-STEP PROCESS FOR EACH QUESTION:
 2. Solve it yourself from scratch (do the math, apply the formula, check the facts)
 3. Compare your result against EACH numbered option individually
 4. Set correctAnswerIndex to the INDEX (0, 1, 2, 3) of the option that matches your result
-5. If the answer changed, write a corrected explanation that supports the new answer
+5. If the answer changed, write a corrected explanation: state the relevant concept/formula, then show the step-by-step reasoning or calculation that leads to the new answer
 
 CRITICAL NUMERIC/UNIT RULES:
 - 50g = 0.05kg (NOT 5kg) — always check decimal places and unit conversions
@@ -649,7 +651,7 @@ ${JSON.stringify(verificationItems, null, 2)}
 Respond with ONLY a JSON array. For each question:
 - "correctAnswerIndex": the 0-based INDEX of the correct option (0, 1, 2, or 3) — use a NUMBER, not text
 - "computation": for numeric questions, an object with "steps" (array of math expressions using pure numbers, no units) and "unit" (result unit string). Omit for non-numeric questions.
-- "explanation": if changed, a corrected explanation; if unchanged, copy the original
+- "explanation": if changed, write a corrected explanation stating the concept/formula and step-by-step reasoning; if unchanged, copy the original
 [{"index": 0, "correctAnswerIndex": 2, "computation": {"steps": ["x = 5 * 0.01"], "unit": "kg"}, "explanation": "why correct"}, ...]`;
 
     const verifyResponse = await pRetry(
@@ -783,8 +785,8 @@ REQUIREMENTS:
 3. Do NOT generate any question type that is not listed above. If only one type is specified, ALL questions MUST be that type.
 4. Distribute question types roughly evenly among the selected types
 5. DIFFICULTY LEVEL: ${difficulty.toUpperCase()} - ${difficultyDescriptions[difficulty]}
-6. Include an explanation for why the correct answer is right
-7. For multiple choice, include explanations for why EACH wrong answer is incorrect
+6. Include a thorough explanation: state the relevant concept, principle, or definition first, then show the reasoning or calculation that leads to the correct answer
+7. For multiple choice, include explanations for why EACH wrong answer is incorrect — identify the specific misconception or error
 8. For multiple choice, always provide exactly 4 options
 9. CATEGORY: Assign exactly ONE category from: ${categoryList}
    - Math: arithmetic, algebra, geometry, calculus, statistics, etc.
@@ -826,8 +828,8 @@ QUESTION GENERATION FLOW (MANDATORY - follow this exact order for each question)
 - Step 2: Generate the answer options
 - Step 3: For math/science/numeric questions: Break down the solution into computation steps — a series of mathematical expressions the system will evaluate. Do NOT compute the final answer yourself; instead provide the formulas/expressions. Include the result unit in "computation".
 - Step 4: DECIDE which option is the correct answer and set "correctAnswerIndex"
-- Step 5: Write "explanation" to explain why correctAnswer is right (for math/science, show the full calculation)
-- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake
+- Step 5: Write "explanation" — first state the concept/principle/formula being tested, then walk through the reasoning or calculation step-by-step. The student should understand the "why" behind the answer, not just the answer itself.
+- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, identify the specific misconception, common mistake, or error that leads to it
 
 SELF-CONSISTENCY CHECK: The explanation MUST support the correctAnswer you already chose. If you realize during explanation that a different option is actually correct, go back and fix the correctAnswer BEFORE writing the explanation.
 
@@ -843,7 +845,7 @@ OUTPUT FORMAT (JSON):
       "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text. For true_false: use correctAnswerIndex (0 for True, 1 for False).",
       "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-      "explanation": "Why the correct option is right. For math/science: show full calculation.",
+      "explanation": "State the concept/principle/formula, then show step-by-step reasoning or calculation. Be explicit and educational.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
         "Wrong option 2 text": "The specific mistake that leads to this wrong value",
@@ -890,8 +892,8 @@ REQUIREMENTS:
 3. Do NOT generate any question type that is not listed above. If only one type is specified, ALL questions MUST be that type.
 4. Distribute question types roughly evenly among the selected types
 5. DIFFICULTY LEVEL: ${difficulty.toUpperCase()} - ${difficultyDescriptions[difficulty]}
-6. Include an explanation for why the correct answer is right
-7. For multiple choice, include explanations for why EACH wrong answer is incorrect
+6. Include a thorough explanation: state the relevant concept, principle, or definition first, then show the reasoning or calculation that leads to the correct answer
+7. For multiple choice, include explanations for why EACH wrong answer is incorrect — identify the specific misconception or error
 8. For multiple choice, always provide exactly 4 options labeled A, B, C, D
 9. At least 30% of questions should be based on or reference the visual content (charts, diagrams, images)
 10. For questions that reference a specific image, include the imageIndex (0-based index of the attached image)
@@ -935,8 +937,8 @@ QUESTION GENERATION FLOW (MANDATORY - follow this exact order for each question)
 - Step 2: Generate the answer options
 - Step 3: For math/science/numeric questions: Break down the solution into computation steps — a series of mathematical expressions the system will evaluate. Do NOT compute the final answer yourself; instead provide the formulas/expressions. Include the result unit in "computation".
 - Step 4: DECIDE which option is the correct answer and set "correctAnswerIndex"
-- Step 5: Write "explanation" to explain why correctAnswer is right (for math/science, show the full calculation)
-- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake
+- Step 5: Write "explanation" — first state the concept/principle/formula being tested, then walk through the reasoning or calculation step-by-step. The student should understand the "why" behind the answer, not just the answer itself.
+- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, identify the specific misconception, common mistake, or error that leads to it
 
 SELF-CONSISTENCY CHECK: The explanation MUST support the correctAnswer you already chose. If you realize during explanation that a different option is actually correct, go back and fix the correctAnswer BEFORE writing the explanation.
 
@@ -952,7 +954,7 @@ OUTPUT FORMAT (JSON):
       "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text",
       "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-      "explanation": "Why the correct option is right. For math/science: show full calculation.",
+      "explanation": "State the concept/principle/formula, then show step-by-step reasoning or calculation. Be explicit and educational.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
         "Wrong option 2 text": "The specific mistake that leads to this wrong value",
@@ -1000,8 +1002,8 @@ REQUIREMENTS:
 3. Do NOT generate any question type that is not listed above. If only one type is specified, ALL questions MUST be that type.
 4. Distribute question types roughly evenly among the selected types
 5. DIFFICULTY LEVEL: ${difficulty.toUpperCase()} - ${difficultyDescriptions[difficulty]}
-6. Include an explanation for why the correct answer is right
-7. For multiple choice, include explanations for why EACH wrong answer is incorrect
+6. Include a thorough explanation: state the relevant concept, principle, or definition first, then show the reasoning or calculation that leads to the correct answer
+7. For multiple choice, include explanations for why EACH wrong answer is incorrect — identify the specific misconception or error
 8. For multiple choice, always provide exactly 4 options
 9. ALL questions should be based on the visual content
 10. For questions that reference a specific image, include the imageIndex (0-based index of the attached image)
@@ -1045,8 +1047,8 @@ QUESTION GENERATION FLOW (MANDATORY - follow this exact order for each question)
 - Step 2: Generate the answer options
 - Step 3: For math/science/numeric questions: Break down the solution into computation steps — a series of mathematical expressions the system will evaluate. Do NOT compute the final answer yourself; instead provide the formulas/expressions. Include the result unit in "computation".
 - Step 4: DECIDE which option is the correct answer and set "correctAnswerIndex"
-- Step 5: Write "explanation" to explain why correctAnswer is right (for math/science, show the full calculation)
-- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake
+- Step 5: Write "explanation" — first state the concept/principle/formula being tested, then walk through the reasoning or calculation step-by-step. The student should understand the "why" behind the answer, not just the answer itself.
+- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, identify the specific misconception, common mistake, or error that leads to it
 
 SELF-CONSISTENCY CHECK: The explanation MUST support the option at correctAnswerIndex. If you realize during explanation that a different option is actually correct, go back and fix the correctAnswerIndex BEFORE writing the explanation.
 
@@ -1062,7 +1064,7 @@ OUTPUT FORMAT (JSON):
       "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text",
       "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-      "explanation": "Why the correct option is right. For math/science: show full calculation.",
+      "explanation": "State the concept/principle/formula, then show step-by-step reasoning or calculation. Be explicit and educational.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
         "Wrong option 2 text": "The specific mistake that leads to this wrong value",
@@ -1353,8 +1355,8 @@ export async function importExistingQuiz(
 Your task is to:
 1. Parse and extract ALL existing questions from the content
 2. Identify the correct answer for each question using your knowledge
-3. Provide a brief explanation for why each answer is correct
-4. For each WRONG answer option, provide a brief explanation of why it is incorrect
+3. Provide a thorough explanation for each answer: state the relevant concept, principle, or formula, then show the reasoning or calculation
+4. For each WRONG answer option, explain the specific misconception or error that makes it incorrect
 5. Generate a short, descriptive title (max 6 words) for this quiz.
 
 CONTENT:
@@ -1372,8 +1374,8 @@ FACTUAL ACCURACY AND SELF-CONSISTENCY (HIGHEST PRIORITY - FOLLOW STRICTLY):
 - For math/science: work through all calculations, unit conversions, and formulas step by step FIRST, arrive at the result, THEN set correctAnswer to the option matching your result
 - SELF-CHECK (MANDATORY): After writing each question, re-read your own explanation. The value/conclusion in the explanation MUST match the correctAnswer field EXACTLY. If your explanation derives "0.05kg" then correctAnswer MUST be "0,05kg" or "0.05kg" — NEVER a different value. Fix any mismatch before moving on.
 - NEVER mark a wrong answer as correct. If uncertain, use the most defensible and commonly accepted answer
-- The explanation must clearly and logically justify why the correct answer is right
-- wrongAnswerExplanations: for EACH wrong option, explain specifically why that value is wrong (e.g., "This is off by a factor of 100 due to a unit conversion error"). Do NOT just restate the correct answer.
+- The explanation must explicitly teach the concept: state the relevant principle, law, definition, or formula first, then walk through the reasoning or calculation that leads to the correct answer. Students should learn from the explanation.
+- wrongAnswerExplanations: for EACH wrong option, identify the specific misconception, calculation error, or misunderstanding that would lead to choosing it (e.g., "This results from forgetting to convert grams to kilograms — applying F = ma with mass in grams gives 50 instead of 0.05"). Do NOT just restate the correct answer.
 ${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 
 IMPORTANT INSTRUCTIONS:
@@ -1398,7 +1400,7 @@ OUTPUT FORMAT (JSON):
       "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text",
       "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-      "explanation": "Brief explanation of why this is the correct answer",
+      "explanation": "State the concept/principle/formula, then walk through the reasoning or calculation. Be explicit and educational.",
       "wrongAnswerExplanations": {
         "Option 1": "Why this option is incorrect",
         "Option 2": "Why this option is incorrect"
@@ -1424,8 +1426,8 @@ Your task is to:
 1. Parse and extract ALL existing questions from BOTH the text content AND the attached images
 2. Questions may appear in the images - extract those too
 3. Identify the correct answer for each question using your knowledge
-4. Provide a brief explanation for why each answer is correct
-5. For each WRONG answer option, provide a brief explanation of why it is incorrect
+4. Provide a thorough explanation for each answer: state the relevant concept, principle, or formula, then show the reasoning or calculation
+5. For each WRONG answer option, explain the specific misconception or error that makes it incorrect
 6. Generate a short, descriptive title (max 6 words) for this quiz.
 
 TEXT CONTENT:
@@ -1441,8 +1443,8 @@ FACTUAL ACCURACY AND SELF-CONSISTENCY (HIGHEST PRIORITY - FOLLOW STRICTLY):
 - For math/science: work through all calculations, unit conversions, and formulas step by step FIRST, arrive at the result, THEN set correctAnswer to the option matching your result
 - SELF-CHECK (MANDATORY): After writing each question, re-read your own explanation. The value/conclusion in the explanation MUST match the correctAnswer field EXACTLY. If your explanation derives "0.05kg" then correctAnswer MUST be "0,05kg" or "0.05kg" — NEVER a different value. Fix any mismatch before moving on.
 - NEVER mark a wrong answer as correct. If uncertain, use the most defensible and commonly accepted answer
-- The explanation must clearly and logically justify why the correct answer is right
-- wrongAnswerExplanations: for EACH wrong option, explain specifically why that value is wrong (e.g., "This is off by a factor of 100 due to a unit conversion error"). Do NOT just restate the correct answer.
+- The explanation must explicitly teach the concept: state the relevant principle, law, definition, or formula first, then walk through the reasoning or calculation that leads to the correct answer. Students should learn from the explanation.
+- wrongAnswerExplanations: for EACH wrong option, identify the specific misconception, calculation error, or misunderstanding that would lead to choosing it (e.g., "This results from forgetting to convert grams to kilograms — applying F = ma with mass in grams gives 50 instead of 0.05"). Do NOT just restate the correct answer.
 ${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 
 IMPORTANT INSTRUCTIONS:
@@ -1466,7 +1468,7 @@ OUTPUT FORMAT (JSON):
       "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text",
       "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-      "explanation": "Brief explanation of why this is the correct answer",
+      "explanation": "State the concept/principle/formula, then walk through the reasoning or calculation. Be explicit and educational.",
       "wrongAnswerExplanations": {
         "Option 1": "Why this option is incorrect",
         "Option 2": "Why this option is incorrect"
@@ -1838,8 +1840,8 @@ export async function reviseQuizQuestions(params: {
               systemPrompt = `You are an expert quiz question writer and verifier. Your job is to revise a quiz question by:
 1. Rewriting the question to be clearer and more precise (keep same language)
 2. SOLVING the problem independently step-by-step to determine the correct answer
-3. Writing a thorough explanation showing the full solution process
-4. Generating explanations for why each wrong answer is incorrect
+3. Writing a thorough explanation: state the relevant concept, principle, definition, or formula first, then walk through the complete solution step-by-step. The student should understand the "why" behind the answer.
+4. For each wrong answer, explaining the specific misconception or error that leads to it
 
 CRITICAL RULES:
 - LANGUAGE: Write ALL output in the SAME language as the original question
@@ -1855,7 +1857,7 @@ Respond in valid JSON:
   "question": "revised question text (SAME LANGUAGE as original)",
   "correctAnswerIndex": 0,
   "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-  "explanation": "step-by-step solution showing how you arrived at the answer",
+  "explanation": "State the concept/principle/formula, then show step-by-step solution. Be explicit and educational.",
   "optionExplanations": {
     "0": "why option 0 is correct/incorrect",
     "1": "why option 1 is correct/incorrect",
@@ -1897,7 +1899,7 @@ Respond in valid JSON:
 {
   "correctAnswerIndex": 0,
   "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-  "explanation": "step-by-step solution showing how you arrived at the answer",
+  "explanation": "State the concept/principle/formula, then show step-by-step solution. Be explicit and educational.",
   "optionExplanations": {
     "0": "why option 0 is correct/incorrect",
     "1": "why option 1 is correct/incorrect",
