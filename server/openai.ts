@@ -22,6 +22,226 @@ function isRateLimitError(error: any): boolean {
 
 export type ProgressCallback = (step: string, progress: number, message: string) => void;
 
+const SI_UNIT_NORMALIZATION_INSTRUCTIONS = `
+SI UNIT NORMALIZATION (MANDATORY for physics/math/science questions with units):
+When your computed answer has units, you MUST normalize to SI base units BEFORE comparing against options:
+- Mass: convert to kilograms (kg). 1g = 0.001kg, 50g = 0.05kg, 1mg = 0.000001kg
+- Time: convert to seconds (s). 1min = 60s, 1h = 3600s, 1ms = 0.001s
+- Length: convert to meters (m). 1cm = 0.01m, 1mm = 0.001m, 1km = 1000m
+- Area: convert to m². 1cm² = 0.0001m²
+- Volume: convert to m³. 1L = 0.001m³, 1mL = 0.000001m³, 1cm³ = 0.000001m³
+- Speed: convert to m/s. 1km/h = 1/3.6 m/s
+- Energy: convert to joules (J). 1kJ = 1000J, 1cal = 4.184J
+- Force: convert to newtons (N). 1kN = 1000N
+- Pressure: convert to pascals (Pa). 1atm = 101325Pa, 1bar = 100000Pa
+- Temperature: keep in Kelvin or Celsius as given (do not convert between them)
+
+COMPARISON PROCESS:
+1. Compute your answer and convert to SI units → this is your "SI result"
+2. For EACH option, convert its value to the SAME SI unit → each option's "SI value"
+3. Compare each option's SI value against your SI result numerically (treat comma and period as equivalent decimal separators: 0,05 = 0.05)
+4. The option whose SI value matches your SI result is the correct one
+5. Example: Your result = 0.05 kg. Options: "0,05kg" → 0.05kg ✓, "5g" → 0.005kg ✗, "0,05g" → 0.00005kg ✗, "5kg" → 5kg ✗. Answer = option with "0,05kg"
+`;
+
+const SI_CONVERSION_TABLE: Record<string, { factor: number; siUnit: string }> = {
+  'kg': { factor: 1, siUnit: 'kg' },
+  'g': { factor: 0.001, siUnit: 'kg' },
+  'mg': { factor: 0.000001, siUnit: 'kg' },
+  'tấn': { factor: 1000, siUnit: 'kg' },
+  'ton': { factor: 1000, siUnit: 'kg' },
+  't': { factor: 1000, siUnit: 'kg' },
+
+  'm': { factor: 1, siUnit: 'm' },
+  'cm': { factor: 0.01, siUnit: 'm' },
+  'mm': { factor: 0.001, siUnit: 'm' },
+  'km': { factor: 1000, siUnit: 'm' },
+  'dm': { factor: 0.1, siUnit: 'm' },
+
+  's': { factor: 1, siUnit: 's' },
+  'ms': { factor: 0.001, siUnit: 's' },
+  'min': { factor: 60, siUnit: 's' },
+  'h': { factor: 3600, siUnit: 's' },
+
+  'm²': { factor: 1, siUnit: 'm²' },
+  'cm²': { factor: 0.0001, siUnit: 'm²' },
+  'dm²': { factor: 0.01, siUnit: 'm²' },
+  'km²': { factor: 1000000, siUnit: 'm²' },
+  'm2': { factor: 1, siUnit: 'm²' },
+  'cm2': { factor: 0.0001, siUnit: 'm²' },
+
+  'm³': { factor: 1, siUnit: 'm³' },
+  'cm³': { factor: 0.000001, siUnit: 'm³' },
+  'dm³': { factor: 0.001, siUnit: 'm³' },
+  'l': { factor: 0.001, siUnit: 'm³' },
+  'ml': { factor: 0.000001, siUnit: 'm³' },
+  'm3': { factor: 1, siUnit: 'm³' },
+  'cm3': { factor: 0.000001, siUnit: 'm³' },
+
+  'm/s': { factor: 1, siUnit: 'm/s' },
+  'km/h': { factor: 1 / 3.6, siUnit: 'm/s' },
+  'cm/s': { factor: 0.01, siUnit: 'm/s' },
+
+  'j': { factor: 1, siUnit: 'J' },
+  'kj': { factor: 1000, siUnit: 'J' },
+  'mj': { factor: 1000000, siUnit: 'J' },
+  'cal': { factor: 4.184, siUnit: 'J' },
+  'kcal': { factor: 4184, siUnit: 'J' },
+
+  'n': { factor: 1, siUnit: 'N' },
+  'kn': { factor: 1000, siUnit: 'N' },
+
+  'pa': { factor: 1, siUnit: 'Pa' },
+  'kpa': { factor: 1000, siUnit: 'Pa' },
+  'mpa': { factor: 1000000, siUnit: 'Pa' },
+  'atm': { factor: 101325, siUnit: 'Pa' },
+  'bar': { factor: 100000, siUnit: 'Pa' },
+
+  'hz': { factor: 1, siUnit: 'Hz' },
+  'khz': { factor: 1000, siUnit: 'Hz' },
+  'mhz': { factor: 1000000, siUnit: 'Hz' },
+
+  'v': { factor: 1, siUnit: 'V' },
+  'kv': { factor: 1000, siUnit: 'V' },
+  'mv': { factor: 0.001, siUnit: 'V' },
+
+  'a': { factor: 1, siUnit: 'A' },
+  'ma': { factor: 0.001, siUnit: 'A' },
+
+  'ω': { factor: 1, siUnit: 'Ω' },
+  'ohm': { factor: 1, siUnit: 'Ω' },
+  'kω': { factor: 1000, siUnit: 'Ω' },
+  'kohm': { factor: 1000, siUnit: 'Ω' },
+
+  'w': { factor: 1, siUnit: 'W' },
+  'kw': { factor: 1000, siUnit: 'W' },
+  'mw': { factor: 0.001, siUnit: 'W' },
+
+  'rad/s': { factor: 1, siUnit: 'rad/s' },
+};
+
+function parseNumericWithUnit(text: string): { value: number; unit: string; siValue: number; siUnit: string } | null {
+  const cleaned = text.trim()
+    .replace(/^[A-Da-d]\)\s*/, '')
+    .replace(/\s*\(.*?\)\s*$/, '')
+    .replace(/\s+/g, '');
+
+  const match = cleaned.match(/^([+-]?\d+(?:[.,]\d+)?(?:[eE][+-]?\d+)?)\s*(.+)$/);
+  if (!match) return null;
+
+  const numStr = match[1].replace(',', '.');
+  const value = parseFloat(numStr);
+  if (isNaN(value)) return null;
+
+  const unitRaw = match[2].trim();
+  const unitLower = unitRaw.toLowerCase();
+
+  const conversion = SI_CONVERSION_TABLE[unitLower] || SI_CONVERSION_TABLE[unitRaw];
+  if (!conversion) return null;
+
+  return {
+    value,
+    unit: unitRaw,
+    siValue: value * conversion.factor,
+    siUnit: conversion.siUnit,
+  };
+}
+
+const UNIT_PATTERN_STR = 'kg|g|mg|tấn|ton|m\\/s|km\\/h|cm\\/s|rad\\/s|m²|cm²|dm²|km²|m2|cm2|m³|cm³|dm³|m3|cm3|km|dm|cm|mm|ml|kPa|MPa|kpa|mpa|Pa|pa|atm|bar|kHz|MHz|hz|khz|mhz|Hz|kV|mV|kv|mv|mA|ma|kΩ|kω|kohm|Ω|ω|ohm|kW|mW|kw|mw|kJ|MJ|kj|mj|kcal|cal|kN|kn|ms|min|m|s|h|l|J|j|N|n|V|v|A|a|W|w';
+
+function deterministicNumericVerify(explanation: string, options: string[], currentCorrectAnswer: string): string | null {
+  if (!options || options.length === 0) return null;
+
+  const parsedOptions = options.map(opt => ({
+    text: opt,
+    parsed: parseNumericWithUnit(opt),
+  }));
+
+  const numericOptions = parsedOptions.filter(o => o.parsed !== null);
+  if (numericOptions.length < 2) return null;
+
+  const siUnitGroups = new Map<string, typeof numericOptions>();
+  for (const opt of numericOptions) {
+    const su = opt.parsed!.siUnit;
+    if (!siUnitGroups.has(su)) siUnitGroups.set(su, []);
+    siUnitGroups.get(su)!.push(opt);
+  }
+
+  const largestGroup = Array.from(siUnitGroups.entries()).sort((a, b) => b[1].length - a[1].length)[0];
+  if (!largestGroup || largestGroup[1].length < 2) return null;
+
+  const targetSiUnit = largestGroup[0];
+
+  const keywordPattern = new RegExp(
+    `(?:=|→|≈|≃|kết quả|result|answer|equals|is|được|bằng|therefore|so|thus|hence|vậy|nên|suy ra)\\s*([+-]?\\d+(?:[.,]\\d+)?(?:[eE][+-]?\\d+)?)\\s*(${UNIT_PATTERN_STR})(?:\\b|(?=[^a-zA-Z]))`,
+    'gi'
+  );
+
+  const genericPattern = new RegExp(
+    `([+-]?\\d+(?:[.,]\\d+)?(?:[eE][+-]?\\d+)?)\\s*(${UNIT_PATTERN_STR})(?:\\b|(?=[^a-zA-Z]))`,
+    'gi'
+  );
+
+  const matches: Array<{ value: number; unit: string }> = [];
+  let m;
+  while ((m = keywordPattern.exec(explanation)) !== null) {
+    const val = parseFloat(m[1].replace(',', '.'));
+    if (!isNaN(val)) {
+      matches.push({ value: val, unit: m[2] });
+    }
+  }
+
+  if (matches.length === 0) {
+    while ((m = genericPattern.exec(explanation)) !== null) {
+      const val = parseFloat(m[1].replace(',', '.'));
+      if (!isNaN(val)) {
+        matches.push({ value: val, unit: m[2] });
+      }
+    }
+  }
+
+  if (matches.length === 0) return null;
+
+  let explanationSiValue: number | null = null;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const unitLower = matches[i].unit.toLowerCase();
+    const conversion = SI_CONVERSION_TABLE[unitLower] || SI_CONVERSION_TABLE[matches[i].unit];
+    if (conversion && conversion.siUnit === targetSiUnit) {
+      explanationSiValue = matches[i].value * conversion.factor;
+      break;
+    }
+  }
+
+  if (explanationSiValue === null) {
+    const lastMatch = matches[matches.length - 1];
+    const unitLower = lastMatch.unit.toLowerCase();
+    const conversion = SI_CONVERSION_TABLE[unitLower] || SI_CONVERSION_TABLE[lastMatch.unit];
+    if (!conversion) return null;
+    explanationSiValue = lastMatch.value * conversion.factor;
+  }
+
+  const TOLERANCE = 1e-4;
+  let bestMatch: string | null = null;
+  let bestDiff = Infinity;
+
+  for (const opt of numericOptions) {
+    if (opt.parsed!.siUnit !== targetSiUnit) continue;
+    const diff = Math.abs(opt.parsed!.siValue - explanationSiValue);
+    const relativeDiff = explanationSiValue !== 0 ? diff / Math.abs(explanationSiValue) : diff;
+
+    if (relativeDiff < TOLERANCE && relativeDiff < bestDiff) {
+      bestDiff = relativeDiff;
+      bestMatch = opt.text;
+    }
+  }
+
+  if (bestMatch && bestMatch !== currentCorrectAnswer) {
+    return bestMatch;
+  }
+
+  return null;
+}
+
 export type ImageClassification = {
   url: string;
   hasIllustrations: boolean;
@@ -241,7 +461,7 @@ CRITICAL NUMERIC/UNIT RULES:
 - Common AI mistakes: off by factor of 10, 100, or 1000 in unit conversions
 - For calculations: re-do the arithmetic yourself, don't trust the explanation
 - The correct answer must have the right NUMBER and the right UNIT
-
+${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 Questions to verify:
 ${JSON.stringify(verificationItems, null, 2)}
 
@@ -393,6 +613,7 @@ FACTUAL ACCURACY (HIGHEST PRIORITY):
 - For short answer questions: ensure the expected answer is the most standard, widely-accepted answer — not an obscure or ambiguous phrasing
 - NEVER set a wrong answer as the correct answer. If you are unsure about the correct answer, use the most defensible and commonly accepted answer
 - Each wrong option must be clearly and definitively wrong — not a "close second" or debatable alternative
+${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 
 CRITICAL RULES:
 - NEVER use placeholder text like "Option 1", "Option 2", "correctAnswer", "Wrong Option", etc. in actual options
@@ -491,6 +712,7 @@ FACTUAL ACCURACY (HIGHEST PRIORITY):
 - For short answer questions: ensure the expected answer is the most standard, widely-accepted answer — not an obscure or ambiguous phrasing
 - NEVER set a wrong answer as the correct answer. If you are unsure about the correct answer, use the most defensible and commonly accepted answer
 - Each wrong option must be clearly and definitively wrong — not a "close second" or debatable alternative
+${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 
 CRITICAL RULES:
 - NEVER use placeholder text like "Option 1", "Option 2", "correctAnswer", "Wrong Option", etc. in actual options
@@ -591,6 +813,7 @@ FACTUAL ACCURACY (HIGHEST PRIORITY):
 - For short answer questions: ensure the expected answer is the most standard, widely-accepted answer — not an obscure or ambiguous phrasing
 - NEVER set a wrong answer as the correct answer. If you are unsure about the correct answer, use the most defensible and commonly accepted answer
 - Each wrong option must be clearly and definitively wrong — not a "close second" or debatable alternative
+${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 
 CRITICAL RULES:
 - NEVER use placeholder text like "Option 1", "Option 2", "correctAnswer", "Wrong Option", etc. in actual options
@@ -773,6 +996,12 @@ Respond with ONLY valid JSON, no markdown or additional text.`;
         console.warn(`[REGEX VERIFY] Correcting answer: "${q.correctAnswer}" -> "${fixedAnswer}" for: "${String(q.question).substring(0, 60)}..."`);
         q.correctAnswer = fixedAnswer;
       }
+
+      const siFixed = deterministicNumericVerify(String(q.explanation), q.options.map((o: any) => String(o)), String(q.correctAnswer));
+      if (siFixed) {
+        console.warn(`[SI UNIT VERIFY] Correcting answer: "${q.correctAnswer}" -> "${siFixed}" for: "${String(q.question).substring(0, 60)}..."`);
+        q.correctAnswer = siFixed;
+      }
     }
 
     for (const q of rawQuestions) {
@@ -941,6 +1170,7 @@ FACTUAL ACCURACY AND SELF-CONSISTENCY (HIGHEST PRIORITY - FOLLOW STRICTLY):
 - NEVER mark a wrong answer as correct. If uncertain, use the most defensible and commonly accepted answer
 - The explanation must clearly and logically justify why the correct answer is right
 - wrongAnswerExplanations: for EACH wrong option, explain specifically why that value is wrong (e.g., "This is off by a factor of 100 due to a unit conversion error"). Do NOT just restate the correct answer.
+${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 
 IMPORTANT INSTRUCTIONS:
 - Extract questions EXACTLY as they appear (preserving the original wording)
@@ -1001,6 +1231,7 @@ FACTUAL ACCURACY AND SELF-CONSISTENCY (HIGHEST PRIORITY - FOLLOW STRICTLY):
 - NEVER mark a wrong answer as correct. If uncertain, use the most defensible and commonly accepted answer
 - The explanation must clearly and logically justify why the correct answer is right
 - wrongAnswerExplanations: for EACH wrong option, explain specifically why that value is wrong (e.g., "This is off by a factor of 100 due to a unit conversion error"). Do NOT just restate the correct answer.
+${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 
 IMPORTANT INSTRUCTIONS:
 - Extract questions EXACTLY as they appear (from both text and images)
@@ -1125,6 +1356,12 @@ Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
       if (fixedAnswer && fixedAnswer !== q.correctAnswer) {
         console.warn(`[IMPORT REGEX VERIFY] Correcting answer: "${q.correctAnswer}" -> "${fixedAnswer}" for: "${String(q.question).substring(0, 60)}..."`);
         q.correctAnswer = fixedAnswer;
+      }
+
+      const siFixed = deterministicNumericVerify(String(q.explanation), q.options.map((o: any) => String(o)), String(q.correctAnswer));
+      if (siFixed) {
+        console.warn(`[IMPORT SI UNIT VERIFY] Correcting answer: "${q.correctAnswer}" -> "${siFixed}" for: "${String(q.question).substring(0, 60)}..."`);
+        q.correctAnswer = siFixed;
       }
     }
 
@@ -1406,7 +1643,7 @@ CRITICAL RULES:
 - Your explanation MUST logically lead to the option you selected
 - correctAnswerIndex MUST be the integer index (0, 1, 2, 3, ...) of the correct option
 - For each wrong option, explain specifically what error or misconception would lead to choosing it
-
+${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 Respond in valid JSON:
 {
   "question": "revised question text (SAME LANGUAGE as original)",
@@ -1447,7 +1684,7 @@ CRITICAL RULES:
 - DO NOT trust the currently marked answer — solve independently
 - Your explanation MUST logically lead to the option you selected
 - correctAnswerIndex MUST be the integer index (0, 1, 2, 3, ...) of the correct option
-
+${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 Respond in valid JSON:
 {
   "correctAnswerIndex": 0,
@@ -1551,6 +1788,18 @@ IMPORTANT: Return correctAnswerIndex as a NUMBER (0, 1, 2, or 3), not the option
               }
             } else if (parsed.wrongAnswerExplanations) {
               Object.assign(wrongAnswerExplanations, parsed.wrongAnswerExplanations);
+            }
+
+            if (hasOptions && parsed.explanation) {
+              const siFixed = deterministicNumericVerify(
+                String(parsed.explanation),
+                q.options!.map((o: string) => String(o)),
+                resolvedAnswer
+              );
+              if (siFixed) {
+                console.warn(`[AI REVISE SI VERIFY] Q${idx + 1}: Correcting "${resolvedAnswer}" -> "${siFixed}"`);
+                resolvedAnswer = siFixed;
+              }
             }
 
             const prevAnswer = q.correctAnswer;
