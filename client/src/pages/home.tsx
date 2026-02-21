@@ -2763,6 +2763,8 @@ export default function Home() {
   const { isAuthenticated, isLoading } = useAuth();
   const { openLoginDialog, openSignUpDialog } = useAuthDialog();
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [pillOnDark, setPillOnDark] = useState(false);
+  const pillRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
@@ -2775,11 +2777,54 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const checkBackground = () => {
+      if (!pillRef.current) return;
+      const pillRect = pillRef.current.getBoundingClientRect();
+      const sampleX = pillRect.left + pillRect.width / 2;
+      const sampleY = pillRect.top + pillRect.height / 2;
+
+      pillRef.current.style.pointerEvents = "none";
+      pillRef.current.style.visibility = "hidden";
+      const el = document.elementFromPoint(sampleX, sampleY);
+      pillRef.current.style.pointerEvents = "";
+      pillRef.current.style.visibility = "";
+
+      if (!el) return;
+
+      let target: Element | null = el;
+      let bgColor = "";
+      while (target && target !== document.documentElement) {
+        const bg = getComputedStyle(target).backgroundColor;
+        if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
+          bgColor = bg;
+          break;
+        }
+        target = target.parentElement;
+      }
+
+      if (!bgColor) {
+        bgColor = getComputedStyle(document.documentElement).backgroundColor || "rgb(255,255,255)";
+      }
+
+      const match = bgColor.match(/\d+/g);
+      if (match && match.length >= 3) {
+        const [r, g, b] = match.map(Number);
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        setPillOnDark(luminance < 0.45);
+      }
+    };
+
+    checkBackground();
     const handleScroll = () => {
       setShowScrollTop(window.scrollY > 300);
+      checkBackground();
     };
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", checkBackground, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", checkBackground);
+    };
   }, []);
 
   const handleTextExtracted = (
@@ -2805,20 +2850,27 @@ export default function Home() {
   return (
     <div className="min-h-screen overflow-hidden">
       <div className="fixed top-4 left-0 right-0 z-50 flex justify-center px-3 sm:px-4 pointer-events-none">
-        <div className="flex items-center justify-between gap-4 h-14 px-6 rounded-full border border-border/20 bg-background/50 backdrop-blur-md shadow-sm max-w-6xl w-full pointer-events-auto">
+        <div
+          ref={pillRef}
+          className={`flex items-center justify-between gap-4 h-14 px-6 rounded-full border backdrop-blur-md shadow-sm max-w-6xl w-full pointer-events-auto transition-colors duration-300 ${
+            pillOnDark
+              ? "bg-white/80 border-white/30 text-gray-900"
+              : "bg-background/50 border-border/20 text-foreground"
+          }`}
+        >
           <Link href="/" className="flex items-center gap-2.5" data-testid="link-logo">
             <img 
               src={logoImage} 
               alt="Prepetual Logo" 
               className="w-9 h-9 rounded-full object-cover"
             />
-            <span className="pb-0.5 text-xl font-brand text-foreground hidden sm:inline">prepetual</span>
+            <span className={`pb-0.5 text-xl font-brand hidden sm:inline ${pillOnDark ? "text-gray-900" : "text-foreground"}`}>prepetual</span>
           </Link>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             {!isLoading && (
               <>
-                <Button variant="ghost" onClick={openLoginDialog} data-testid="button-login">
+                <Button variant="ghost" onClick={openLoginDialog} data-testid="button-login" className={pillOnDark ? "text-gray-700 hover:text-gray-900 hover:bg-gray-200/50" : ""}>
                   Log in
                 </Button>
                 <Button variant="default" onClick={openSignUpDialog} data-testid="button-signup">
