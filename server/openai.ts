@@ -430,7 +430,7 @@ OUTPUT FORMAT (JSON):
       "type": "multiple_choice" | "true_false" | "short_answer",
       "question": "The question text",
       "options": ["Option with similar length", "Option with similar length", "Option with similar length", "Option with similar length"],
-      "correctAnswer": "The exact correct option text (decided FIRST, without any prefix)",
+      "correctAnswer": "The exact correct option text (decided FIRST, without any prefix). For true_false questions, MUST be exactly \"True\" or \"False\".",
       "explanation": "Why correctAnswer is right. For math/science: show full calculation arriving at the correctAnswer value.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
@@ -440,6 +440,8 @@ OUTPUT FORMAT (JSON):
     }
   ]
 }
+
+IMPORTANT: For true_false questions, the options MUST be ["True", "False"] and correctAnswer MUST be exactly "True" or "False" (capitalized).
 
 Respond with ONLY valid JSON, no markdown or additional text.`;
 
@@ -525,7 +527,7 @@ OUTPUT FORMAT (JSON):
       "type": "multiple_choice" | "true_false" | "short_answer",
       "question": "The question text",
       "options": ["Option with similar length", "Option with similar length", "Option with similar length", "Option with similar length"],
-      "correctAnswer": "The exact correct option text (decided FIRST, without any prefix)",
+      "correctAnswer": "The exact correct option text (decided FIRST, without any prefix). For true_false questions, MUST be exactly \"True\" or \"False\".",
       "explanation": "Why correctAnswer is right. For math/science: show full calculation arriving at the correctAnswer value.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
@@ -536,6 +538,8 @@ OUTPUT FORMAT (JSON):
     }
   ]
 }
+
+IMPORTANT: For true_false questions, the options MUST be ["True", "False"] and correctAnswer MUST be exactly "True" or "False" (capitalized).
 
 Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
 
@@ -622,7 +626,7 @@ OUTPUT FORMAT (JSON):
       "type": "multiple_choice" | "true_false" | "short_answer",
       "question": "The question text",
       "options": ["Option with similar length", "Option with similar length", "Option with similar length", "Option with similar length"],
-      "correctAnswer": "The exact correct option text (decided FIRST, without any prefix)",
+      "correctAnswer": "The exact correct option text (decided FIRST, without any prefix). For true_false questions, MUST be exactly \"True\" or \"False\".",
       "explanation": "Why correctAnswer is right. For math/science: show full calculation arriving at the correctAnswer value.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
@@ -633,6 +637,8 @@ OUTPUT FORMAT (JSON):
     }
   ]
 }
+
+IMPORTANT: For true_false questions, the options MUST be ["True", "False"] and correctAnswer MUST be exactly "True" or "False" (capitalized).
 
 Respond with ONLY valid JSON, no markdown or additional text.`;
 
@@ -824,6 +830,17 @@ Respond with ONLY valid JSON, no markdown or additional text.`;
             (t: string) => t === correctText,
           );
           correctAnswer = options[newCorrectIndex];
+        }
+      }
+
+      // Normalize true/false questions
+      if (q.type === "true_false") {
+        options = ["True", "False"];
+        const lowerAnswer = correctAnswer.toLowerCase();
+        if (["true", "t", "yes", "đúng", "correct", "right"].includes(lowerAnswer)) {
+          correctAnswer = "True";
+        } else {
+          correctAnswer = "False";
         }
       }
 
@@ -1461,6 +1478,16 @@ Independently solve this and determine which option is actually correct. Show yo
                 resolvedAnswer.toLowerCase().includes(opt.toLowerCase())
               );
               resolvedAnswer = match || q.correctAnswer;
+            }
+
+            // Normalize true/false answers
+            if (q.type === "true_false") {
+              const lower = resolvedAnswer.toLowerCase();
+              if (["true", "t", "yes", "đúng", "correct", "right"].includes(lower)) {
+                resolvedAnswer = "True";
+              } else {
+                resolvedAnswer = "False";
+              }
             }
 
             return {
