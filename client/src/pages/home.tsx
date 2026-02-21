@@ -2764,7 +2764,6 @@ export default function Home() {
   const { openLoginDialog, openSignUpDialog } = useAuthDialog();
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [pillOnDark, setPillOnDark] = useState(false);
-  const pillRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
@@ -2776,55 +2775,19 @@ export default function Home() {
     setExtractedText("");
   }, []);
 
+  const heroRef = useRef<HTMLElement>(null);
+
   useEffect(() => {
-    const checkBackground = () => {
-      if (!pillRef.current) return;
-      const pillRect = pillRef.current.getBoundingClientRect();
-      const sampleX = pillRect.left + pillRect.width / 2;
-      const sampleY = pillRect.top + pillRect.height / 2;
-
-      pillRef.current.style.pointerEvents = "none";
-      pillRef.current.style.visibility = "hidden";
-      const el = document.elementFromPoint(sampleX, sampleY);
-      pillRef.current.style.pointerEvents = "";
-      pillRef.current.style.visibility = "";
-
-      if (!el) return;
-
-      let target: Element | null = el;
-      let bgColor = "";
-      while (target && target !== document.documentElement) {
-        const bg = getComputedStyle(target).backgroundColor;
-        if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
-          bgColor = bg;
-          break;
-        }
-        target = target.parentElement;
-      }
-
-      if (!bgColor) {
-        bgColor = getComputedStyle(document.documentElement).backgroundColor || "rgb(255,255,255)";
-      }
-
-      const match = bgColor.match(/\d+/g);
-      if (match && match.length >= 3) {
-        const [r, g, b] = match.map(Number);
-        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-        setPillOnDark(luminance < 0.45);
-      }
-    };
-
-    checkBackground();
     const handleScroll = () => {
       setShowScrollTop(window.scrollY > 300);
-      checkBackground();
+      if (heroRef.current) {
+        const heroBottom = heroRef.current.offsetTop + heroRef.current.offsetHeight;
+        setPillOnDark(window.scrollY + 72 > heroBottom);
+      }
     };
     window.addEventListener("scroll", handleScroll, { passive: true });
-    window.addEventListener("resize", checkBackground, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("resize", checkBackground);
-    };
+    handleScroll();
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   const handleTextExtracted = (
@@ -2851,7 +2814,6 @@ export default function Home() {
     <div className="min-h-screen overflow-hidden">
       <div className="fixed top-4 left-0 right-0 z-50 flex justify-center px-3 sm:px-4 pointer-events-none">
         <div
-          ref={pillRef}
           className={`flex items-center justify-between gap-4 h-14 px-6 rounded-full border backdrop-blur-md shadow-sm max-w-6xl w-full pointer-events-auto transition-colors duration-300 ${
             pillOnDark
               ? "bg-white/80 border-white/30 text-gray-900"
@@ -2882,7 +2844,7 @@ export default function Home() {
         </div>
       </div>
 
-      <section className="relative pb-8 md:pb-16 overflow-hidden">
+      <section ref={heroRef} className="relative pb-8 md:pb-16 overflow-hidden">
         <div className="absolute inset-0 pointer-events-none">
           <motion.div
             className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full bg-primary/8 blur-[120px]"
