@@ -64,6 +64,14 @@ export default function EditQuizPage() {
   const [previewIndex, setPreviewIndex] = useState(0);
   const [typeChangeDialog, setTypeChangeDialog] = useState<{ index: number; newType: QuestionType } | null>(null);
   const [isConverting, setIsConverting] = useState<number | null>(null);
+  const [manualEditForm, setManualEditForm] = useState<{
+    index: number;
+    newType: QuestionType;
+    question: string;
+    options: string[];
+    correctAnswer: string;
+    explanation: string;
+  } | null>(null);
 
   useEffect(() => {
     if (currentQuiz) {
@@ -1093,7 +1101,7 @@ export default function EditQuizPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={typeChangeDialog !== null} onOpenChange={(open) => { if (!open) setTypeChangeDialog(null); }}>
+      <AlertDialog open={typeChangeDialog !== null && manualEditForm === null} onOpenChange={(open) => { if (!open) setTypeChangeDialog(null); }}>
         <AlertDialogContent className="max-w-sm">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-base">Change question type</AlertDialogTitle>
@@ -1107,9 +1115,20 @@ export default function EditQuizPage() {
               className="justify-start gap-3 h-auto py-3 px-4"
               onClick={() => {
                 if (typeChangeDialog) {
-                  applyManualTypeChange(typeChangeDialog.index, typeChangeDialog.newType);
-                  setTypeChangeDialog(null);
-                  toast({ title: "Type changed", description: "Edit the question content manually" });
+                  const { index, newType } = typeChangeDialog;
+                  const defaultOptions = newType === "multiple_choice"
+                    ? ["Option 1", "Option 2", "Option 3", "Option 4"]
+                    : newType === "true_false"
+                    ? ["True", "False"]
+                    : [];
+                  setManualEditForm({
+                    index,
+                    newType,
+                    question: "",
+                    options: defaultOptions,
+                    correctAnswer: newType === "true_false" ? "True" : "",
+                    explanation: "",
+                  });
                 }
               }}
               data-testid="button-manual-type-change"
@@ -1117,7 +1136,7 @@ export default function EditQuizPage() {
               <PenLine className="h-4 w-4 shrink-0" />
               <div className="text-left">
                 <p className="text-sm font-medium">Write manually</p>
-                <p className="text-xs text-muted-foreground">Change the type and edit it yourself</p>
+                <p className="text-xs text-muted-foreground">Fill in a form to write the question yourself</p>
               </div>
             </Button>
             <Button
@@ -1135,6 +1154,172 @@ export default function EditQuizPage() {
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={manualEditForm !== null} onOpenChange={(open) => { if (!open) { setManualEditForm(null); setTypeChangeDialog(null); } }}>
+        <AlertDialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base flex items-center gap-2">
+              <PenLine className="h-4 w-4" />
+              Write {manualEditForm?.newType === "multiple_choice" ? "multiple choice" : manualEditForm?.newType === "true_false" ? "true/false" : "short answer"} question
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+          {manualEditForm && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label className="text-sm">Question</Label>
+                <Textarea
+                  value={manualEditForm.question}
+                  onChange={(e) => setManualEditForm({ ...manualEditForm, question: e.target.value })}
+                  placeholder="Enter your question..."
+                  rows={3}
+                  data-testid="input-manual-question"
+                />
+              </div>
+
+              {manualEditForm.newType === "multiple_choice" && (
+                <div className="space-y-2">
+                  <Label className="text-sm">Options</Label>
+                  <p className="text-xs text-muted-foreground">Click the circle next to an option to mark it as correct.</p>
+                  <div className="space-y-2">
+                    {manualEditForm.options.map((opt, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setManualEditForm({ ...manualEditForm, correctAnswer: opt })}
+                          className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                            manualEditForm.correctAnswer === opt
+                              ? "border-emerald-500 bg-emerald-500"
+                              : "border-muted-foreground/40 hover:border-muted-foreground"
+                          }`}
+                          data-testid={`button-mark-correct-${i}`}
+                        >
+                          {manualEditForm.correctAnswer === opt && (
+                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </button>
+                        <Input
+                          value={opt}
+                          onChange={(e) => {
+                            const newOptions = [...manualEditForm.options];
+                            const wasCorrect = manualEditForm.correctAnswer === newOptions[i];
+                            newOptions[i] = e.target.value;
+                            setManualEditForm({
+                              ...manualEditForm,
+                              options: newOptions,
+                              correctAnswer: wasCorrect ? e.target.value : manualEditForm.correctAnswer,
+                            });
+                          }}
+                          placeholder={`Option ${String.fromCharCode(65 + i)}`}
+                          data-testid={`input-manual-option-${i}`}
+                        />
+                        {manualEditForm.options.length > 2 && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="shrink-0 h-8 w-8"
+                            onClick={() => {
+                              const newOptions = manualEditForm.options.filter((_, idx) => idx !== i);
+                              const newCorrect = manualEditForm.correctAnswer === opt ? "" : manualEditForm.correctAnswer;
+                              setManualEditForm({ ...manualEditForm, options: newOptions, correctAnswer: newCorrect });
+                            }}
+                            data-testid={`button-remove-option-${i}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {manualEditForm.options.length < 6 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setManualEditForm({ ...manualEditForm, options: [...manualEditForm.options, ""] })}
+                      data-testid="button-add-manual-option"
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" />
+                      Add option
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {manualEditForm.newType === "true_false" && (
+                <div className="space-y-2">
+                  <Label className="text-sm">Correct Answer</Label>
+                  <div className="flex gap-2">
+                    {["True", "False"].map((val) => (
+                      <Button
+                        key={val}
+                        variant={manualEditForm.correctAnswer === val ? "default" : "outline"}
+                        className="flex-1"
+                        onClick={() => setManualEditForm({ ...manualEditForm, correctAnswer: val })}
+                        data-testid={`button-tf-${val.toLowerCase()}`}
+                      >
+                        {val}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {manualEditForm.newType === "short_answer" && (
+                <div className="space-y-2">
+                  <Label className="text-sm">Correct Answer</Label>
+                  <Input
+                    value={manualEditForm.correctAnswer}
+                    onChange={(e) => setManualEditForm({ ...manualEditForm, correctAnswer: e.target.value })}
+                    placeholder="Enter the correct answer..."
+                    data-testid="input-manual-correct-answer"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label className="text-sm">Explanation <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                <Textarea
+                  value={manualEditForm.explanation}
+                  onChange={(e) => setManualEditForm({ ...manualEditForm, explanation: e.target.value })}
+                  placeholder="Explain why this is the correct answer..."
+                  rows={3}
+                  data-testid="input-manual-explanation"
+                />
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!manualEditForm?.question.trim() || !manualEditForm?.correctAnswer.trim()}
+              onClick={() => {
+                if (!manualEditForm) return;
+                const { index, newType, question: qText, options: opts, correctAnswer: ans, explanation: expl } = manualEditForm;
+                const updated = [...questions];
+                updated[index] = {
+                  ...updated[index],
+                  type: newType,
+                  question: qText.trim(),
+                  options: newType === "short_answer" ? undefined : opts,
+                  correctAnswer: ans.trim(),
+                  explanation: expl.trim() || undefined,
+                  wrongAnswerExplanations: undefined,
+                };
+                setQuestions(updated);
+                setExpandedIndex(index);
+                setManualEditForm(null);
+                setTypeChangeDialog(null);
+                toast({ title: "Question updated" });
+              }}
+              data-testid="button-save-manual-question"
+            >
+              <Save className="h-4 w-4 mr-1" />
+              Save question
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
