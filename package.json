@@ -73,6 +73,7 @@
     "jszip": "^3.10.1",
     "katex": "^0.16.27",
     "lucide-react": "^0.453.0",
+    "mathjs": "^15.1.1",
     "memoizee": "^0.4.17",
     "memorystore": "^1.6.7",
     "multer": "^2.0.2",
