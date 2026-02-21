@@ -329,7 +329,17 @@ export default function FolderPage() {
   const totalQuestions = getTotalQuestions();
 
   return (
-    <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-4xl">
+    <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-4xl relative">
+      {togglePublicMutation.isPending && (
+        <div className="fixed top-0 left-0 right-0 z-50">
+          <motion.div
+            className="h-[3px] bg-primary origin-left"
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: [0, 0.4, 0.7, 0.85] }}
+            transition={{ duration: 3, ease: "easeOut" }}
+          />
+        </div>
+      )}
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
