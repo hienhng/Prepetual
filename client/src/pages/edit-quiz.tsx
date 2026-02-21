@@ -33,7 +33,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useQuiz } from "@/lib/quiz-context";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -60,7 +59,7 @@ export default function EditQuizPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isRevising, setIsRevising] = useState<number | null>(null);
   const [reviseDialogIndex, setReviseDialogIndex] = useState<number | null>(null);
-  const [reviseSelectedAnswer, setReviseSelectedAnswer] = useState<string>("");
+  const [reviseFeedback, setReviseFeedback] = useState<string>("");
   const [previewIndex, setPreviewIndex] = useState(0);
   const [isConverting, setIsConverting] = useState<number | null>(null);
 
@@ -294,26 +293,26 @@ export default function EditQuizPage() {
   };
 
   const handleAiRevise = (questionIndex: number) => {
-    const q = questions[questionIndex];
     setReviseDialogIndex(questionIndex);
-    setReviseSelectedAnswer(q.correctAnswer);
+    setReviseFeedback("");
   };
 
   const confirmAiRevise = async () => {
     if (reviseDialogIndex === null) return;
     const questionIndex = reviseDialogIndex;
+    const feedback = reviseFeedback.trim();
     setReviseDialogIndex(null);
     setIsRevising(questionIndex);
     try {
       const response = await apiRequest("POST", `/api/quiz/${currentQuiz.id}/ai-revise`, {
         questionIndex,
-        userCorrectAnswer: reviseSelectedAnswer,
+        ...(feedback ? { userFeedback: feedback } : {}),
       });
       const updatedQuiz = await response.json();
       setQuestions(updatedQuiz.questions);
       setCurrentQuiz(updatedQuiz);
       queryClient.invalidateQueries({ queryKey: ["/api/quizzes"] });
-      toast({ title: "Question revised", description: `Q${questionIndex + 1} has been revised by AI` });
+      toast({ title: "Question revised", description: `Q${questionIndex + 1} has been revised — answer and explanation updated by AI` });
     } catch (error) {
       toast({ title: "Revise failed", description: "Something went wrong. Please try again.", variant: "destructive" });
     } finally {
@@ -1017,43 +1016,27 @@ export default function EditQuizPage() {
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5" />
-              Which answer is correct?
+              AI Revise
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div>
-                <p className="mb-3">Select the correct answer, and AI will generate a matching explanation.</p>
                 {reviseDialogIndex !== null && (
                   <div className="text-left">
                     <p className="text-sm font-medium text-foreground mb-3">{questions[reviseDialogIndex]?.question}</p>
-                    {questions[reviseDialogIndex]?.type === "short_answer" ? (
-                      <Input
-                        value={reviseSelectedAnswer}
-                        onChange={(e) => setReviseSelectedAnswer(e.target.value)}
-                        placeholder="Type the correct answer..."
-                        data-testid="input-revise-answer"
+                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 mb-4">
+                      <p className="text-xs font-medium text-primary mb-1">How it works</p>
+                      <p className="text-xs text-muted-foreground">AI will independently solve this question, determine the correct answer, and generate a matching explanation. The correct answer may change.</p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-foreground mb-1.5 block">Feedback for AI <span className="text-muted-foreground font-normal">(optional)</span></label>
+                      <textarea
+                        value={reviseFeedback}
+                        onChange={(e) => setReviseFeedback(e.target.value)}
+                        placeholder='e.g. "The answer should account for friction" or "This question is about organic chemistry, not inorganic"'
+                        className="w-full min-h-[80px] rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+                        data-testid="input-revise-feedback"
                       />
-                    ) : (
-                      <RadioGroup
-                        value={reviseSelectedAnswer}
-                        onValueChange={setReviseSelectedAnswer}
-                        className="space-y-2"
-                      >
-                        {(questions[reviseDialogIndex]?.options || []).map((option, i) => (
-                          <label
-                            key={i}
-                            className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                              reviseSelectedAnswer === option
-                                ? "border-primary bg-primary/5"
-                                : "border-border hover:bg-muted/50"
-                            }`}
-                            data-testid={`label-revise-option-${i}`}
-                          >
-                            <RadioGroupItem value={option} />
-                            <span className="text-sm text-foreground">{option}</span>
-                          </label>
-                        ))}
-                      </RadioGroup>
-                    )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1063,7 +1046,6 @@ export default function EditQuizPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmAiRevise}
-              disabled={!reviseSelectedAnswer}
               data-testid="button-confirm-revise"
             >
               <Sparkles className="h-4 w-4 mr-1" />

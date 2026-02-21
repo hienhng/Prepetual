@@ -1094,19 +1094,19 @@ Format with bullet points for easy reading. Keep it under 500 words.`
       }
 
       const mode = quiz.generationMode === "import" ? "answers_only" : "full";
-      const { questionIndex, userCorrectAnswer } = req.body;
+      const { questionIndex, userFeedback } = req.body;
       const allQuestions = quiz.questions as Question[];
 
       if (questionIndex !== undefined && typeof questionIndex === "number") {
         if (questionIndex < 0 || questionIndex >= allQuestions.length) {
           return res.status(400).json({ message: "Invalid question index" });
         }
-        console.log(`[AI REVISE] Revising single question ${questionIndex + 1}/${allQuestions.length} for quiz ${id}, mode: ${mode}, userAnswer: ${userCorrectAnswer || "none"}`);
+        console.log(`[AI REVISE] Revising single question ${questionIndex + 1}/${allQuestions.length} for quiz ${id}, mode: ${mode}, feedback: ${userFeedback ? "yes" : "none"}`);
         const revisedSingle = await reviseQuizQuestions({
           questions: [allQuestions[questionIndex]],
           mode,
           sourceText: quiz.sourceText,
-          userCorrectAnswer: userCorrectAnswer || undefined,
+          userFeedback: userFeedback || undefined,
         });
         allQuestions[questionIndex] = revisedSingle[0];
       } else {
