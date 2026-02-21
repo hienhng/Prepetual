@@ -230,8 +230,8 @@ async function aiVerifyAnswers(mcQuestions: any[], logPrefix: string = "[AI VERI
 STEP-BY-STEP PROCESS FOR EACH QUESTION:
 1. Read the question carefully
 2. Solve it yourself from scratch (do the math, apply the formula, check the facts)
-3. Find the option that matches YOUR calculated/determined answer
-4. Compare with the "markedCorrect" — if they differ, output YOUR answer
+3. Compare your result against EACH numbered option individually
+4. Set correctAnswerIndex to the INDEX (0, 1, 2, 3) of the option that matches your result
 5. If the answer changed, write a corrected explanation that supports the new answer
 
 CRITICAL NUMERIC/UNIT RULES:
@@ -241,16 +241,14 @@ CRITICAL NUMERIC/UNIT RULES:
 - Common AI mistakes: off by factor of 10, 100, or 1000 in unit conversions
 - For calculations: re-do the arithmetic yourself, don't trust the explanation
 - The correct answer must have the right NUMBER and the right UNIT
-- If explanation says "50g = 0,05kg" but markedCorrect is "5kg", the correct answer is the option with "0,05kg" NOT "5kg"
 
 Questions to verify:
 ${JSON.stringify(verificationItems, null, 2)}
 
 Respond with ONLY a JSON array. For each question:
-- "correctAnswer": the EXACT text from the options array
+- "correctAnswerIndex": the 0-based INDEX of the correct option (0, 1, 2, or 3) — use a NUMBER, not text
 - "explanation": if changed, a corrected explanation; if unchanged, copy the original
-- "wrongAnswerExplanations": object mapping each WRONG option text (without prefix) to why it's wrong
-[{"index": 0, "correctAnswer": "exact option text", "explanation": "why correct", "wrongAnswerExplanations": {"wrong opt text": "why wrong", ...}}, ...]`;
+[{"index": 0, "correctAnswerIndex": 2, "explanation": "why correct"}, ...]`;
 
     const verifyResponse = await pRetry(
       async () => {
@@ -270,41 +268,42 @@ Respond with ONLY a JSON array. For each question:
 
     if (Array.isArray(verifications)) {
       for (const v of verifications) {
-        if (typeof v.index === "number" && typeof v.correctAnswer === "string") {
-          const q = mcQuestions[v.index];
-          if (q) {
-            const options = q.options.map((o: any) => String(o).trim());
-            const verifiedAnswer = v.correctAnswer.trim();
-            const markedCorrect = String(q.correctAnswer).trim();
+        if (typeof v.index !== "number") continue;
+        const q = mcQuestions[v.index];
+        if (!q) continue;
 
-            if (verifiedAnswer !== markedCorrect && options.includes(verifiedAnswer)) {
-              console.warn(`${logPrefix} Question "${String(q.question).substring(0, 60)}..." — changing answer from "${markedCorrect}" to "${verifiedAnswer}"`);
+        const options = q.options.map((o: any) => String(o).trim());
+        const markedCorrect = String(q.correctAnswer).trim();
+
+        if (v.correctAnswerIndex !== undefined) {
+          const ansIdx = typeof v.correctAnswerIndex === "string" ? parseInt(v.correctAnswerIndex, 10) : v.correctAnswerIndex;
+          if (typeof ansIdx === "number" && ansIdx >= 0 && ansIdx < options.length) {
+            const verifiedAnswer = options[ansIdx];
+            if (verifiedAnswer !== markedCorrect) {
+              console.warn(`${logPrefix} Question "${String(q.question).substring(0, 60)}..." — changing answer from "${markedCorrect}" to "${verifiedAnswer}" (index ${ansIdx})`);
               q.correctAnswer = verifiedAnswer;
             }
+          }
+        } else if (typeof v.correctAnswer === "string") {
+          const verifiedAnswer = v.correctAnswer.trim();
+          if (verifiedAnswer !== markedCorrect && options.includes(verifiedAnswer)) {
+            console.warn(`${logPrefix} Question "${String(q.question).substring(0, 60)}..." — changing answer from "${markedCorrect}" to "${verifiedAnswer}"`);
+            q.correctAnswer = verifiedAnswer;
+          }
+        }
 
-            if (v.explanation && typeof v.explanation === "string" && v.explanation.trim().length > 10) {
-              q.explanation = v.explanation.trim();
-            }
+        if (v.explanation && typeof v.explanation === "string" && v.explanation.trim().length > 10) {
+          q.explanation = v.explanation.trim();
+        }
 
-            if (v.wrongAnswerExplanations && typeof v.wrongAnswerExplanations === "object") {
-              q.wrongAnswerExplanations = {};
-              for (const [key, val] of Object.entries(v.wrongAnswerExplanations)) {
-                if (val && typeof val === "string") {
-                  q.wrongAnswerExplanations[String(key).trim()] = String(val).trim();
-                }
-              }
-            }
-            
-            const finalCorrect = String(q.correctAnswer).trim();
-            if (!q.wrongAnswerExplanations) q.wrongAnswerExplanations = {};
-            for (const opt of options) {
-              if (opt === finalCorrect) continue;
-              const optText = opt.replace(/^[A-D]\)\s*/, "").trim();
-              const hasExplanation = q.wrongAnswerExplanations[optText] || q.wrongAnswerExplanations[opt];
-              if (!hasExplanation) {
-                q.wrongAnswerExplanations[optText] = `This is incorrect. The correct answer is ${finalCorrect.replace(/^[A-D]\)\s*/, "").trim()}.`;
-              }
-            }
+        const finalCorrect = String(q.correctAnswer).trim();
+        if (!q.wrongAnswerExplanations) q.wrongAnswerExplanations = {};
+        for (const opt of options) {
+          if (opt === finalCorrect) continue;
+          const optText = opt.replace(/^[A-D]\)\s*/, "").trim();
+          const hasExplanation = q.wrongAnswerExplanations[optText] || q.wrongAnswerExplanations[opt];
+          if (!hasExplanation) {
+            q.wrongAnswerExplanations[optText] = `This is incorrect. The correct answer is ${finalCorrect.replace(/^[A-D]\)\s*/, "").trim()}.`;
           }
         }
       }
@@ -430,8 +429,9 @@ OUTPUT FORMAT (JSON):
       "type": "multiple_choice" | "true_false" | "short_answer",
       "question": "The question text",
       "options": ["Option with similar length", "Option with similar length", "Option with similar length", "Option with similar length"],
-      "correctAnswer": "The exact correct option text (decided FIRST, without any prefix). For true_false questions, MUST be exactly \"True\" or \"False\".",
-      "explanation": "Why correctAnswer is right. For math/science: show full calculation arriving at the correctAnswer value.",
+      "correctAnswerIndex": 0, // 0-based index of the correct option (0, 1, 2, or 3). For short_answer, use "correctAnswer" text instead.
+      "correctAnswer": "Only for short_answer type - the answer text. For true_false: use correctAnswerIndex (0 for True, 1 for False).",
+      "explanation": "Why the correct option is right. For math/science: show full calculation.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
         "Wrong option 2 text": "The specific mistake that leads to this wrong value",
@@ -441,7 +441,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-IMPORTANT: For true_false questions, the options MUST be ["True", "False"] and correctAnswer MUST be exactly "True" or "False" (capitalized).
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, the options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text.
 
 Respond with ONLY valid JSON, no markdown or additional text.`;
 
@@ -527,8 +527,9 @@ OUTPUT FORMAT (JSON):
       "type": "multiple_choice" | "true_false" | "short_answer",
       "question": "The question text",
       "options": ["Option with similar length", "Option with similar length", "Option with similar length", "Option with similar length"],
-      "correctAnswer": "The exact correct option text (decided FIRST, without any prefix). For true_false questions, MUST be exactly \"True\" or \"False\".",
-      "explanation": "Why correctAnswer is right. For math/science: show full calculation arriving at the correctAnswer value.",
+      "correctAnswerIndex": 0, // 0-based index of the correct option (0, 1, 2, or 3). For short_answer, use "correctAnswer" text instead.
+      "correctAnswer": "Only for short_answer type - the answer text",
+      "explanation": "Why the correct option is right. For math/science: show full calculation.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
         "Wrong option 2 text": "The specific mistake that leads to this wrong value",
@@ -539,7 +540,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-IMPORTANT: For true_false questions, the options MUST be ["True", "False"] and correctAnswer MUST be exactly "True" or "False" (capitalized).
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text.
 
 Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
 
@@ -611,11 +612,11 @@ ANSWER LENGTH BALANCING (EXTREMELY IMPORTANT - FOLLOW STRICTLY):
 QUESTION GENERATION FLOW (MANDATORY - follow this exact order for each question):
 - Step 1: Write the question text
 - Step 2: Generate the answer options
-- Step 3: DECIDE which option is the correct answer and set "correctAnswer" — this is your commitment, do NOT change it later
-- Step 4: All other options are now wrong. Write "explanation" to explain why correctAnswer is right (for math/science, show the full calculation that arrives at the correctAnswer value)
+- Step 3: DECIDE which option is the correct answer and set "correctAnswerIndex" — this is your commitment, do NOT change it later
+- Step 4: All other options are now wrong. Write "explanation" to explain why the correct option is right (for math/science, show the full calculation)
 - Step 5: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake or misconception that would lead someone to pick it
 
-SELF-CONSISTENCY CHECK: The explanation MUST support the correctAnswer you already chose. If you realize during explanation that a different option is actually correct, go back and fix the correctAnswer BEFORE writing the explanation.
+SELF-CONSISTENCY CHECK: The explanation MUST support the option at correctAnswerIndex. If you realize during explanation that a different option is actually correct, go back and fix the correctAnswerIndex BEFORE writing the explanation.
 
 OUTPUT FORMAT (JSON):
 {
@@ -626,8 +627,9 @@ OUTPUT FORMAT (JSON):
       "type": "multiple_choice" | "true_false" | "short_answer",
       "question": "The question text",
       "options": ["Option with similar length", "Option with similar length", "Option with similar length", "Option with similar length"],
-      "correctAnswer": "The exact correct option text (decided FIRST, without any prefix). For true_false questions, MUST be exactly \"True\" or \"False\".",
-      "explanation": "Why correctAnswer is right. For math/science: show full calculation arriving at the correctAnswer value.",
+      "correctAnswerIndex": 0, // 0-based index of the correct option (0, 1, 2, or 3). For short_answer, use "correctAnswer" text instead.
+      "correctAnswer": "Only for short_answer type - the answer text",
+      "explanation": "Why the correct option is right. For math/science: show full calculation.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
         "Wrong option 2 text": "The specific mistake that leads to this wrong value",
@@ -638,7 +640,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-IMPORTANT: For true_false questions, the options MUST be ["True", "False"] and correctAnswer MUST be exactly "True" or "False" (capitalized).
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text.
 
 Respond with ONLY valid JSON, no markdown or additional text.`;
 
@@ -749,6 +751,16 @@ Respond with ONLY valid JSON, no markdown or additional text.`;
     const category: QuizCategory = QUIZ_CATEGORIES.includes(rawCategory) ? rawCategory : "Others/General";
     const questions: Question[] = [];
 
+    for (const q of rawQuestions) {
+      if (q.correctAnswerIndex !== undefined && Array.isArray(q.options) && q.options.length > 0) {
+        const idx = typeof q.correctAnswerIndex === "string" ? parseInt(q.correctAnswerIndex, 10) : q.correctAnswerIndex;
+        if (typeof idx === "number" && idx >= 0 && idx < q.options.length) {
+          q.correctAnswer = String(q.options[idx]).trim();
+          console.log(`[GENERATE] Resolved correctAnswerIndex ${idx} -> "${q.correctAnswer}" for: "${String(q.question).substring(0, 50)}..."`);
+        }
+      }
+    }
+
     onProgress?.("verifying", 85, "Verifying answer accuracy...");
     const mcQuestions = rawQuestions.filter((q: any) => 
       q.type === "multiple_choice" && q.explanation && q.correctAnswer && Array.isArray(q.options)
@@ -764,7 +776,7 @@ Respond with ONLY valid JSON, no markdown or additional text.`;
     }
 
     for (const q of rawQuestions) {
-      if (!q.type || !q.question || !q.correctAnswer) {
+      if (!q.type || !q.question || (!q.correctAnswer && q.correctAnswerIndex === undefined)) {
         console.warn("Skipping malformed question:", q);
         continue;
       }
@@ -949,7 +961,8 @@ OUTPUT FORMAT (JSON):
       "type": "multiple_choice OR true_false OR short_answer",
       "question": "The exact question text as it appears",
       "options": ["Option 1", "Option 2", "Option 3", "Option 4"], // For multiple_choice/true_false only. Extract exactly as they appear, but REMOVE any prefixes like "A) ", "1. ", "a. ", etc. For short_answer, omit this field or use empty array.
-      "correctAnswer": "The exact full text of the correct option (without any prefix)",
+      "correctAnswerIndex": 0, // The 0-based index of the correct option in the options array (0, 1, 2, or 3). For short_answer, use "correctAnswer" field instead.
+      "correctAnswer": "Only for short_answer type - the answer text",
       "explanation": "Brief explanation of why this is the correct answer",
       "wrongAnswerExplanations": {
         "Option 1": "Why this option is incorrect",
@@ -958,6 +971,8 @@ OUTPUT FORMAT (JSON):
     }
   ]
 }
+
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number 0-3) instead of "correctAnswer" text. This prevents text-matching errors. For short_answer questions, use "correctAnswer" text.
 
 Respond with ONLY valid JSON, no markdown or additional text.`;
 
@@ -1005,7 +1020,8 @@ OUTPUT FORMAT (JSON):
       "type": "multiple_choice OR true_false OR short_answer",
       "question": "The exact question text as it appears",
       "options": ["Option 1", "Option 2", "Option 3", "Option 4"], // For multiple_choice/true_false only. Extract exactly as they appear, but REMOVE any prefixes. For short_answer, omit this field or use empty array.
-      "correctAnswer": "The exact full text of the correct option (without any prefix)",
+      "correctAnswerIndex": 0, // The 0-based index of the correct option in the options array (0, 1, 2, or 3). For short_answer, use "correctAnswer" field instead.
+      "correctAnswer": "Only for short_answer type - the answer text",
       "explanation": "Brief explanation of why this is the correct answer",
       "wrongAnswerExplanations": {
         "Option 1": "Why this option is incorrect",
@@ -1014,6 +1030,8 @@ OUTPUT FORMAT (JSON):
     }
   ]
 }
+
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number 0-3) instead of "correctAnswer" text. This prevents text-matching errors. For short_answer questions, use "correctAnswer" text.
 
 Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
 
@@ -1087,6 +1105,16 @@ Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
     const title = parsed.title?.trim() || "Imported Quiz";
     const questions: Question[] = [];
 
+    for (const q of parsed.questions) {
+      if (q.correctAnswerIndex !== undefined && Array.isArray(q.options) && q.options.length > 0) {
+        const idx = typeof q.correctAnswerIndex === "string" ? parseInt(q.correctAnswerIndex, 10) : q.correctAnswerIndex;
+        if (typeof idx === "number" && idx >= 0 && idx < q.options.length) {
+          q.correctAnswer = String(q.options[idx]).trim();
+          console.log(`[IMPORT] Resolved correctAnswerIndex ${idx} -> "${q.correctAnswer}" for: "${String(q.question).substring(0, 50)}..."`);
+        }
+      }
+    }
+
     const importMcQuestions = parsed.questions.filter((q: any) =>
       q.explanation && q.correctAnswer && Array.isArray(q.options) && q.options.length > 0
     );
@@ -1101,7 +1129,7 @@ Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
     }
 
     for (const q of parsed.questions) {
-      if (!q.question || !q.correctAnswer) {
+      if (!q.question || (!q.correctAnswer && q.correctAnswerIndex === undefined)) {
         console.warn(
           "Skipping malformed question (missing question or answer):",
           q,
@@ -1355,71 +1383,99 @@ export async function reviseQuizQuestions(params: {
       try {
         const revised = await pRetry(
           async () => {
+            const hasOptions = q.options && q.options.length > 0;
+            const numberedOptions = hasOptions
+              ? q.options!.map((opt, i) => `  Option ${i}: "${opt}"`).join("\n")
+              : "";
+
             let systemPrompt: string;
             let userPrompt: string;
 
             if (mode === "full") {
-              systemPrompt = `You are an expert quiz question writer and verifier. Your job is to revise a quiz question. You must:
-1. Rewrite the question to be clearer and more precise
-2. Independently solve the problem to determine the correct answer
-3. Write a thorough explanation that shows the full solution process
-4. Generate explanations for why each wrong answer is incorrect
+              systemPrompt = `You are an expert quiz question writer and verifier. Your job is to revise a quiz question by:
+1. Rewriting the question to be clearer and more precise (keep same language)
+2. SOLVING the problem independently step-by-step to determine the correct answer
+3. Writing a thorough explanation showing the full solution process
+4. Generating explanations for why each wrong answer is incorrect
 
 CRITICAL RULES:
-- LANGUAGE: You MUST write ALL output (question, explanation, wrongAnswerExplanations) in the SAME language as the original question. If the question is in Vietnamese, respond in Vietnamese. If in Spanish, respond in Spanish. Never switch to English unless the original is in English.
-- You MUST independently solve the problem and determine the correct answer — the correct answer must follow logically from your explanation
-- Your explanation MUST match your chosen correct answer exactly
-- For math/science: show all calculations step-by-step and verify the final answer
-- For unit conversions: double-check every conversion factor
-- The correct answer must be one of the provided options (do not change the options themselves)
-- If the user provided feedback, consider it but still verify correctness independently
+- LANGUAGE: Write ALL output in the SAME language as the original question
+- SOLVE FIRST: For math/science/numeric questions, you MUST compute the answer step-by-step BEFORE choosing an option. Show every calculation, unit conversion, and intermediate result.
+- COMPARE EACH OPTION: After solving, compare your computed result against EVERY option individually. Pick the option that matches your result exactly.
+- DO NOT change the answer options — only the question text may be rewritten
+- Your explanation MUST logically lead to the option you selected
+- correctAnswerIndex MUST be the integer index (0, 1, 2, 3, ...) of the correct option
+- For each wrong option, explain specifically what error or misconception would lead to choosing it
 
-Respond in valid JSON with this exact structure:
+Respond in valid JSON:
 {
   "question": "revised question text (SAME LANGUAGE as original)",
-  "correctAnswer": "the correct option (must be one of the provided options, verbatim)",
-  "explanation": "detailed explanation (SAME LANGUAGE as original question)",
-  "wrongAnswerExplanations": { "wrong option text": "why this is wrong (SAME LANGUAGE)", ... }
+  "correctAnswerIndex": 0,
+  "explanation": "step-by-step solution showing how you arrived at the answer",
+  "optionExplanations": {
+    "0": "why option 0 is correct/incorrect",
+    "1": "why option 1 is correct/incorrect",
+    "2": "why option 2 is correct/incorrect",
+    "3": "why option 3 is correct/incorrect"
+  }
 }`;
               
-              userPrompt = `Revise this question completely. IMPORTANT: Keep everything in the same language as the original question — do NOT translate to English.
+              userPrompt = `Revise this question. IMPORTANT: Keep everything in the same language as the original question.
 
 Question: ${q.question}
 Type: ${q.type}
-${q.options ? `Options: ${JSON.stringify(q.options)}` : ""}
-Current correct answer: ${q.correctAnswer}
+${hasOptions ? `Options:\n${numberedOptions}` : ""}
 ${sourceText ? `\nSource material (for context): ${sourceText.substring(0, 2000)}` : ""}${feedbackBlock}
 
-Remember: Independently solve the problem and pick the correct answer from the existing options. The correct answer MUST match your explanation. Show your work. Write in the SAME language as the question above.`;
+STEP-BY-STEP PROCESS:
+1. First, SOLVE the problem independently — show all work, calculations, formulas
+2. Arrive at a concrete answer/value
+3. Compare your answer against each option (Option 0, Option 1, Option 2, Option 3)
+4. Set correctAnswerIndex to the index of the matching option
+5. Write the explanation showing your solution process
+6. For each wrong option, explain what specific error would lead to that answer
+
+Return correctAnswerIndex as a NUMBER (0, 1, 2, or 3), not the option text.`;
             } else {
-              systemPrompt = `You are an expert answer verifier. Your job is to independently determine the correct answer for a quiz question and write proper explanations. You must NOT change the question text or answer options — only determine which answer is correct and write explanations.
+              systemPrompt = `You are an expert answer verifier. Your job is to independently determine the correct answer for a quiz question and write explanations. You must NOT change the question text or answer options.
 
 CRITICAL RULES:
-- LANGUAGE: You MUST write ALL output (explanation, wrongAnswerExplanations) in the SAME language as the original question. If the question is in Vietnamese, respond in Vietnamese. If in Spanish, respond in Spanish. Never switch to English unless the original is in English.
-- Independently solve the problem — do NOT trust the currently marked answer
-- Your explanation MUST match your chosen correct answer exactly
-- The correct answer must follow logically from your explanation
-- For math/science: show all calculations step-by-step
-- For unit conversions: double-check every conversion factor
-- The correct answer must be one of the provided options (verbatim)
-- If the user provided feedback, consider it but still verify correctness independently
+- LANGUAGE: Write ALL output in the SAME language as the original question
+- SOLVE FIRST: For math/science/numeric questions, you MUST compute the answer step-by-step BEFORE choosing an option. Show every calculation, unit conversion, formula, and intermediate result.
+- COMPARE EACH OPTION: After solving, compare your computed result against EVERY option individually. Pick the option whose value matches your computed result.
+- For numeric options: check if your result matches the number AND unit in each option (e.g., 0.05kg vs 5kg vs 50g — these are all different)
+- DO NOT trust the currently marked answer — solve independently
+- Your explanation MUST logically lead to the option you selected
+- correctAnswerIndex MUST be the integer index (0, 1, 2, 3, ...) of the correct option
 
-Respond in valid JSON with this exact structure:
+Respond in valid JSON:
 {
-  "correctAnswer": "the correct option (must be one of the provided options, verbatim)",
-  "explanation": "detailed explanation (SAME LANGUAGE as the question)",
-  "wrongAnswerExplanations": { "wrong option text": "why this is wrong (SAME LANGUAGE)", ... }
+  "correctAnswerIndex": 0,
+  "explanation": "step-by-step solution showing how you arrived at the answer",
+  "optionExplanations": {
+    "0": "why option 0 is correct/incorrect",
+    "1": "why option 1 is correct/incorrect",
+    "2": "why option 2 is correct/incorrect",
+    "3": "why option 3 is correct/incorrect"
+  }
 }`;
               
-              userPrompt = `Determine the correct answer and write explanations for this question. IMPORTANT: Keep everything in the same language as the original question — do NOT translate to English.
+              userPrompt = `Determine the correct answer for this question. IMPORTANT: Keep everything in the same language as the original question.
 
 Question: ${q.question}
 Type: ${q.type}
-${q.options ? `Options: ${JSON.stringify(q.options)}` : ""}
-Currently marked correct: ${q.correctAnswer}
+${hasOptions ? `Options:\n${numberedOptions}` : ""}
 ${sourceText ? `\nSource material (for context): ${sourceText.substring(0, 2000)}` : ""}${feedbackBlock}
 
-Independently solve this and determine which option is actually correct. The correct answer MUST match your explanation. Show your full reasoning. Write in the SAME language as the question above.`;
+STEP-BY-STEP PROCESS:
+1. First, SOLVE the problem independently — show all work, calculations, formulas
+2. Arrive at a concrete answer/value
+3. Compare your answer against EACH option individually:
+   - For each option, state whether it matches your computed result and why
+4. Set correctAnswerIndex to the index of the option that matches
+5. Write the explanation showing your solution process
+
+IMPORTANT: Return correctAnswerIndex as a NUMBER (0, 1, 2, or 3), not the option text. Do NOT assume the currently marked answer is correct.`;
             }
 
             const completion = await openai.chat.completions.create({
@@ -1428,8 +1484,8 @@ Independently solve this and determine which option is actually correct. The cor
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt },
               ],
-              temperature: 0.3,
-              max_tokens: 2000,
+              temperature: 0.2,
+              max_tokens: 2500,
               response_format: { type: "json_object" },
             });
 
@@ -1442,19 +1498,38 @@ Independently solve this and determine which option is actually correct. The cor
               throw new Error("Invalid AI response: missing explanation");
             }
 
-            const finalAnswer = parsed.correctAnswer;
-            if (!finalAnswer) {
-              throw new Error("Invalid AI response: missing correctAnswer");
-            }
+            let resolvedAnswer: string;
 
-            let resolvedAnswer = finalAnswer;
-            if (q.options && !q.options.includes(resolvedAnswer)) {
-              console.log(`[AI REVISE] Q${idx + 1}: AI picked answer not in options, finding closest match`);
-              const match = q.options.find(opt => 
-                opt.toLowerCase().includes(resolvedAnswer.toLowerCase()) ||
-                resolvedAnswer.toLowerCase().includes(opt.toLowerCase())
-              );
-              resolvedAnswer = match || q.correctAnswer;
+            if (hasOptions && parsed.correctAnswerIndex !== undefined) {
+              const answerIdx = typeof parsed.correctAnswerIndex === "string" 
+                ? parseInt(parsed.correctAnswerIndex, 10) 
+                : parsed.correctAnswerIndex;
+              
+              if (typeof answerIdx === "number" && answerIdx >= 0 && answerIdx < q.options!.length) {
+                resolvedAnswer = q.options![answerIdx];
+                console.log(`[AI REVISE] Q${idx + 1}: AI selected option ${answerIdx} = "${resolvedAnswer}"`);
+              } else {
+                console.warn(`[AI REVISE] Q${idx + 1}: Invalid correctAnswerIndex ${parsed.correctAnswerIndex}, falling back to text match`);
+                resolvedAnswer = parsed.correctAnswer || q.correctAnswer;
+                if (q.options && !q.options.includes(resolvedAnswer)) {
+                  const match = q.options.find(opt =>
+                    opt.toLowerCase().includes(resolvedAnswer.toLowerCase()) ||
+                    resolvedAnswer.toLowerCase().includes(opt.toLowerCase())
+                  );
+                  resolvedAnswer = match || q.correctAnswer;
+                }
+              }
+            } else if (q.type === "short_answer") {
+              resolvedAnswer = parsed.correctAnswer || q.correctAnswer;
+            } else {
+              resolvedAnswer = parsed.correctAnswer || q.correctAnswer;
+              if (q.options && !q.options.includes(resolvedAnswer)) {
+                const match = q.options.find(opt =>
+                  opt.toLowerCase().includes(resolvedAnswer.toLowerCase()) ||
+                  resolvedAnswer.toLowerCase().includes(opt.toLowerCase())
+                );
+                resolvedAnswer = match || q.correctAnswer;
+              }
             }
 
             if (q.type === "true_false") {
@@ -1466,12 +1541,31 @@ Independently solve this and determine which option is actually correct. The cor
               }
             }
 
+            const wrongAnswerExplanations: Record<string, string> = {};
+            if (parsed.optionExplanations && q.options) {
+              for (let i = 0; i < q.options.length; i++) {
+                const optText = q.options[i];
+                if (optText !== resolvedAnswer && parsed.optionExplanations[String(i)]) {
+                  wrongAnswerExplanations[optText] = parsed.optionExplanations[String(i)];
+                }
+              }
+            } else if (parsed.wrongAnswerExplanations) {
+              Object.assign(wrongAnswerExplanations, parsed.wrongAnswerExplanations);
+            }
+
+            const prevAnswer = q.correctAnswer;
+            if (prevAnswer !== resolvedAnswer) {
+              console.log(`[AI REVISE] Q${idx + 1}: Answer CHANGED from "${prevAnswer}" to "${resolvedAnswer}"`);
+            } else {
+              console.log(`[AI REVISE] Q${idx + 1}: Answer unchanged: "${resolvedAnswer}"`);
+            }
+
             return {
               ...q,
               ...(mode === "full" && parsed.question ? { question: parsed.question } : {}),
               correctAnswer: resolvedAnswer,
               explanation: parsed.explanation,
-              wrongAnswerExplanations: parsed.wrongAnswerExplanations || {},
+              wrongAnswerExplanations,
             };
           },
           {
