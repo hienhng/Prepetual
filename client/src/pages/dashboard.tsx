@@ -146,35 +146,71 @@ function StatCard({
   isActive?: boolean;
   onClick?: () => void;
 }) {
+  const colorMap: Record<string, { bg: string; text: string; iconBg: string; ring: string }> = {
+    "bg-gradient-to-br from-blue-500 to-blue-600": {
+      bg: "bg-blue-50 dark:bg-blue-950/30",
+      text: "text-blue-600 dark:text-blue-400",
+      iconBg: "bg-blue-100 dark:bg-blue-900/50",
+      ring: "ring-blue-200 dark:ring-blue-800/50",
+    },
+    "bg-gradient-to-br from-violet-500 to-violet-600": {
+      bg: "bg-violet-50 dark:bg-violet-950/30",
+      text: "text-violet-600 dark:text-violet-400",
+      iconBg: "bg-violet-100 dark:bg-violet-900/50",
+      ring: "ring-violet-200 dark:ring-violet-800/50",
+    },
+    "bg-gradient-to-br from-emerald-500 to-emerald-600": {
+      bg: "bg-emerald-50 dark:bg-emerald-950/30",
+      text: "text-emerald-600 dark:text-emerald-400",
+      iconBg: "bg-emerald-100 dark:bg-emerald-900/50",
+      ring: "ring-emerald-200 dark:ring-emerald-800/50",
+    },
+  };
+
+  const colors = colorMap[gradient] || colorMap["bg-gradient-to-br from-blue-500 to-blue-600"];
+  const inactive = !isActive;
+
   return (
-    <motion.div 
-      whileHover={{ y: -4, scale: 1.02 }} 
-      transition={{ duration: 0.2 }}
+    <motion.div
+      whileHover={{ y: -3, transition: { duration: 0.2, ease: "easeOut" } }}
+      whileTap={onClick ? { scale: 0.98 } : {}}
       onClick={onClick}
       className={onClick ? "cursor-pointer" : ""}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      } : undefined}
+      aria-label={onClick ? `${label}: ${value}` : undefined}
     >
-      <Card className="overflow-visible border-0 shadow-md">
-        <CardContent className="p-0">
-          <div className={`p-4 rounded-md transition-all duration-500 ${isActive ? gradient : "bg-muted shadow-inner"}`}>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="mb-0.5 transition-colors text-white/60 text-[10px] text-left font-medium uppercase tracking-wider">{label}</p>
-                <motion.p 
-                  className={`text-2xl font-bold transition-colors ${isActive ? "text-white" : "text-foreground"}`}
-                  initial={{ scale: 0.5, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ type: "spring", stiffness: 200, damping: 15, delay: 0.2 }}
-                >
-                  {value}
-                </motion.p>
-              </div>
-              <div className="p-3 rounded-xl transition-all duration-500 flex items-center justify-center bg-white/20 backdrop-blur-sm scale-110 shadow-lg text-[#ffffff]">
-                <Icon className="w-6 h-6 transition-colors text-white" />
-              </div>
-            </div>
+      <div className={`relative rounded-2xl p-5 ring-1 transition-all duration-300 h-full ${
+        inactive
+          ? "bg-muted/50 ring-border"
+          : `${colors.bg} ${colors.ring} hover:ring-2`
+      }`}>
+        <div className="flex items-center gap-4">
+          <div className={`shrink-0 flex items-center justify-center w-11 h-11 rounded-xl transition-colors ${
+            inactive
+              ? "bg-muted"
+              : colors.iconBg
+          }`}>
+            <Icon className={`h-5 w-5 ${inactive ? "text-muted-foreground" : colors.text}`} />
           </div>
-        </CardContent>
-      </Card>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {label}
+            </p>
+            <p className={`text-2xl font-bold tracking-tight mt-0.5 ${
+              inactive ? "text-muted-foreground" : "text-foreground"
+            }`}>
+              {value}
+            </p>
+          </div>
+        </div>
+      </div>
     </motion.div>
   );
 }
