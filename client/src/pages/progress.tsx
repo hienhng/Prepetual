@@ -363,10 +363,14 @@ export default function ProgressPage() {
 
   const { data: history = [], isLoading: historyLoading } = useQuery<ResultHistoryItem[]>({
     queryKey: ["/api/user/result-history"],
+    refetchOnMount: "always",
+    staleTime: 0,
   });
 
   const { data: userStats } = useQuery<UserStats>({
     queryKey: ["/api/user/stats"],
+    refetchOnMount: "always",
+    staleTime: 0,
   });
 
   const averageAccuracy = userStats?.averageAccuracy ?? 0;

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useQuiz } from "@/lib/quiz-context";
 import { useAuth } from "@/hooks/useAuth";
+import { queryClient } from "@/lib/queryClient";
 import { useSidebarOptional } from "@/components/ui/sidebar";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Question } from "@shared/schema";
@@ -456,6 +457,11 @@ export function QuizPlayer() {
 
       const result = await response.json();
       
+      queryClient.invalidateQueries({ queryKey: ["/api/quizzes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/user/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/user/result-history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/quiz-progress"] });
+
       setQuizResult(result);
       setLocation("/results");
     } catch (error) {

@@ -131,6 +131,8 @@ export function AppSidebar() {
   const { data: allFolders } = useQuery<Folder[]>({
     queryKey: ["/api/folders"],
     enabled: !!user,
+    refetchOnMount: "always",
+    staleTime: 0,
   });
   const pinnedFolders = allFolders?.filter(f => f.pinnedToSidebar) || [];
 

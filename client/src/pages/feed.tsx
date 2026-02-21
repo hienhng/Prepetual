@@ -341,11 +341,15 @@ export default function Feed() {
 
   const { data: quizzes, isLoading } = useQuery<PublicQuiz[]>({
     queryKey: ["/api/public-quizzes"],
+    refetchOnMount: "always",
+    staleTime: 0,
   });
 
   const { data: recommendations } = useQuery<RecommendationsResponse>({
     queryKey: ["/api/recommendations"],
     enabled: !!user,
+    refetchOnMount: "always",
+    staleTime: 0,
   });
 
   const filteredQuizzes = useMemo(() => {

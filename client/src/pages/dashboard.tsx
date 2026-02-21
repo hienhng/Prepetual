@@ -651,10 +651,14 @@ export default function Dashboard() {
 
   const { data: quizzes, isLoading } = useQuery<Quiz[]>({
     queryKey: ["/api/quizzes"],
+    refetchOnMount: "always",
+    staleTime: 0,
   });
 
   const { data: userStats } = useQuery<UserStats>({
     queryKey: ["/api/user/stats"],
+    refetchOnMount: "always",
+    staleTime: 0,
   });
 
   const handleTakeQuiz = (quiz: Quiz) => {
