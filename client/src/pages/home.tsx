@@ -2804,8 +2804,8 @@ export default function Home() {
 
   return (
     <div className="min-h-screen overflow-hidden">
-      <header className="fixed top-0 left-0 right-0 z-50 w-full flex justify-center pt-4 px-4">
-        <div className="flex items-center justify-between gap-4 h-12 px-5 rounded-full border border-border/40 bg-background/50 backdrop-blur-md shadow-sm max-w-4xl w-full">
+      <div className="fixed top-4 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
+        <div className="flex items-center justify-between gap-4 h-12 px-5 rounded-full border border-border/40 bg-background/50 backdrop-blur-md shadow-sm max-w-4xl w-full pointer-events-auto">
           <Link href="/" className="flex items-center gap-2" data-testid="link-logo">
             <img 
               src={logoImage} 
@@ -2828,7 +2828,7 @@ export default function Home() {
             )}
           </div>
         </div>
-      </header>
+      </div>
 
       <section className="relative pb-8 md:pb-16 overflow-hidden pt-20">
         <div className="absolute inset-0 pointer-events-none">
