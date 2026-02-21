@@ -2830,7 +2830,7 @@ export default function Home() {
         </div>
       </div>
 
-      <section className="relative pb-8 md:pb-16 overflow-hidden pt-20">
+      <section className="relative pb-8 md:pb-16 overflow-hidden">
         <div className="absolute inset-0 pointer-events-none">
           <motion.div
             className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full bg-primary/8 blur-[120px]"
