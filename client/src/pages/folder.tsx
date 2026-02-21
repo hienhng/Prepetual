@@ -35,6 +35,7 @@ import { useQuiz } from "@/lib/quiz-context";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Quiz, Folder as FolderType } from "@shared/schema";
+import { useTopLoader } from "@/components/top-loader";
 
 type QuizWithAttempts = Quiz & { attemptCount?: number };
 
@@ -44,6 +45,7 @@ export default function FolderPage() {
   const [, setLocation] = useLocation();
   const { setCurrentQuiz, setSourceMaterial, savedProgresses, loadSavedProgress } = useQuiz();
   const { toast } = useToast();
+  const topLoader = useTopLoader();
   const [quizToDelete, setQuizToDelete] = useState<QuizWithAttempts | null>(null);
   const [quizToPost, setQuizToPost] = useState<QuizWithAttempts | null>(null);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -90,12 +92,14 @@ export default function FolderPage() {
 
   const togglePublicMutation = useMutation({
     mutationFn: async ({ quizId, isPublic }: { quizId: string; isPublic: boolean }) => {
+      topLoader.start();
       return apiRequest("PUT", `/api/quiz/${quizId}`, { isPublic });
     },
     onSuccess: async (_, { isPublic }) => {
       await queryClient.refetchQueries({ queryKey: ["/api/quizzes"] });
       queryClient.invalidateQueries({ queryKey: ["/api/public-quizzes"] });
       queryClient.invalidateQueries({ queryKey: ["/api/folders", folderId] });
+      topLoader.done();
       toast({
         title: isPublic ? "Quiz shared" : "Quiz hidden",
         description: isPublic
@@ -104,6 +108,7 @@ export default function FolderPage() {
       });
     },
     onError: () => {
+      topLoader.done();
       toast({ title: "Error", description: "Failed to update quiz visibility", variant: "destructive" });
     },
   });
@@ -329,17 +334,7 @@ export default function FolderPage() {
   const totalQuestions = getTotalQuestions();
 
   return (
-    <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-4xl relative">
-      {togglePublicMutation.isPending && (
-        <div className="fixed top-0 left-0 right-0 z-50">
-          <motion.div
-            className="h-[3px] bg-primary origin-left"
-            initial={{ scaleX: 0 }}
-            animate={{ scaleX: [0, 0.4, 0.7, 0.85] }}
-            transition={{ duration: 3, ease: "easeOut" }}
-          />
-        </div>
-      )}
+    <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 max-w-4xl">
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}

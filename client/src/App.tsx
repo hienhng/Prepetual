@@ -8,6 +8,7 @@ import { QuizNavigationGuardProvider } from "@/lib/quiz-navigation-guard";
 import { UploadProvider } from "@/lib/upload-context";
 import { AuthDialogProvider, useAuthDialog } from "@/lib/auth-context";
 import { GlobalUploadIndicator } from "@/components/global-upload-indicator";
+import { TopLoaderProvider } from "@/components/top-loader";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/hooks/useAuth";
 import { LogIn, LogOut, User, Menu, Settings as SettingsIcon } from "lucide-react";
@@ -364,7 +365,9 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AppWithAuth />
+        <TopLoaderProvider>
+          <AppWithAuth />
+        </TopLoaderProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );
