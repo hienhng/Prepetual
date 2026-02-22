@@ -1,4 +1,4 @@
-import { eq, desc, and, gt, inArray } from "drizzle-orm";
+import { eq, desc, and, gt, inArray, sql } from "drizzle-orm";
 import { db } from "./db";
 import { 
   users, 
@@ -180,13 +180,41 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getQuizzesByUserId(userId: string): Promise<Quiz[]> {
-    return await db.select().from(quizzes).where(eq(quizzes.userId, userId)).orderBy(desc(quizzes.createdAt));
+    return await db.select({
+      id: quizzes.id,
+      userId: quizzes.userId,
+      folderId: quizzes.folderId,
+      title: quizzes.title,
+      sourceText: sql<string>`''`.as('source_text'),
+      sourceImageUrl: quizzes.sourceImageUrl,
+      sourceImages: sql<string[] | null>`null`.as('source_images'),
+      questions: quizzes.questions,
+      difficulty: quizzes.difficulty,
+      category: quizzes.category,
+      generationMode: quizzes.generationMode,
+      isPublic: quizzes.isPublic,
+      createdAt: quizzes.createdAt,
+    }).from(quizzes).where(eq(quizzes.userId, userId)).orderBy(desc(quizzes.createdAt));
   }
 
   async getPublicQuizzes(): Promise<(Quiz & { author?: { username: string | null; email: string | null; profileImageUrl: string | null } })[]> {
     const results = await db
       .select({
-        quiz: quizzes,
+        quiz: {
+          id: quizzes.id,
+          userId: quizzes.userId,
+          folderId: quizzes.folderId,
+          title: quizzes.title,
+          sourceText: sql<string>`''`.as('source_text'),
+          sourceImageUrl: quizzes.sourceImageUrl,
+          sourceImages: sql<string[] | null>`null`.as('source_images'),
+          questions: quizzes.questions,
+          difficulty: quizzes.difficulty,
+          category: quizzes.category,
+          generationMode: quizzes.generationMode,
+          isPublic: quizzes.isPublic,
+          createdAt: quizzes.createdAt,
+        },
         author: {
           username: users.username,
           email: users.email,

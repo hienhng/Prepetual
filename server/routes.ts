@@ -936,12 +936,19 @@ Format with bullet points for easy reading. Keep it under 500 words.`
       const userId = req.user.claims.sub;
       const quizzes = await storage.getQuizzesByUserId(userId);
       
-      // Get attempt counts for each quiz
       const quizzesWithAttempts = await Promise.all(
         quizzes.map(async (q) => {
           const results = await storage.getQuizResultsByQuizId(q.id);
+          const lightQuestions = Array.isArray(q.questions) ? q.questions.map((question: any) => ({
+            id: question.id,
+            type: question.type,
+            question: question.question,
+            correctAnswer: question.correctAnswer,
+            options: question.options,
+          })) : q.questions;
           return {
             ...q,
+            questions: lightQuestions,
             createdAt: q.createdAt.toISOString(),
             attemptCount: results.length,
           };
@@ -1302,10 +1309,20 @@ Format with bullet points for easy reading. Keep it under 500 words.`
   app.get("/api/public-quizzes", async (req, res) => {
     try {
       const publicQuizzes = await storage.getPublicQuizzes();
-      res.json(publicQuizzes.map(q => ({
-        ...q,
-        createdAt: q.createdAt.toISOString(),
-      })));
+      res.json(publicQuizzes.map(q => {
+        const lightQuestions = Array.isArray(q.questions) ? q.questions.map((question: any) => ({
+          id: question.id,
+          type: question.type,
+          question: question.question,
+          correctAnswer: question.correctAnswer,
+          options: question.options,
+        })) : q.questions;
+        return {
+          ...q,
+          questions: lightQuestions,
+          createdAt: q.createdAt.toISOString(),
+        };
+      }));
     } catch (error) {
       res.status(500).json({ message: "Failed to get public quizzes" });
     }
