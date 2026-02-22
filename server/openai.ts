@@ -1,13 +1,9 @@
 import OpenAI from "openai";
 import pLimit from "p-limit";
 import pRetry from "p-retry";
-import { create, all } from "mathjs";
 import type { Question, QuestionType, DifficultyLevel, QuizCategory } from "@shared/schema";
 import { QUIZ_CATEGORIES } from "@shared/schema";
 import { randomUUID } from "crypto";
-
-const math = create(all, {});
-const limitedEval = math.evaluate;
 
 const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
@@ -151,98 +147,6 @@ function parseNumericWithUnit(text: string): { value: number; unit: string; siVa
   };
 }
 
-interface ComputationPlan {
-  steps: string[];
-  unit: string;
-}
-
-const MAX_COMPUTATION_STEPS = 20;
-const MAX_STEP_LENGTH = 200;
-
-function evaluateComputationPlan(plan: ComputationPlan, logPrefix: string = "[COMPUTE]"): string | null {
-  try {
-    if (!plan.steps || !Array.isArray(plan.steps) || plan.steps.length === 0) {
-      console.warn(`${logPrefix} No computation steps provided`);
-      return null;
-    }
-    if (!plan.unit || typeof plan.unit !== "string") {
-      console.warn(`${logPrefix} No unit provided for computation`);
-      return null;
-    }
-
-    if (plan.steps.length > MAX_COMPUTATION_STEPS) {
-      console.warn(`${logPrefix} Too many computation steps (${plan.steps.length} > ${MAX_COMPUTATION_STEPS})`);
-      return null;
-    }
-
-    const scope: Record<string, any> = {};
-
-    for (const step of plan.steps) {
-      const trimmed = step.trim();
-      if (!trimmed) continue;
-
-      if (trimmed.length > MAX_STEP_LENGTH) {
-        console.warn(`${logPrefix} Step too long (${trimmed.length} chars): "${trimmed.substring(0, 50)}..."`);
-        return null;
-      }
-
-      if (/import|require|eval|function|=>|class|new |process|global|window/.test(trimmed)) {
-        console.warn(`${logPrefix} Blocked unsafe expression: "${trimmed}"`);
-        return null;
-      }
-
-      console.log(`${logPrefix}   eval: ${trimmed}`);
-      try {
-        const result = limitedEval(trimmed, scope);
-        if (result !== undefined) {
-          const assignMatch = trimmed.match(/^\s*([a-zA-Z_]\w*)\s*=/);
-          if (assignMatch) {
-            console.log(`${logPrefix}     → ${assignMatch[1]} = ${result}`);
-          }
-        }
-      } catch (stepError: any) {
-        console.warn(`${logPrefix}   Step failed: "${trimmed}" — ${stepError.message}`);
-        return null;
-      }
-    }
-
-    const lastStep = plan.steps[plan.steps.length - 1].trim();
-    const lastAssign = lastStep.match(/^\s*([a-zA-Z_]\w*)\s*=/);
-    let finalValue: number;
-
-    if (lastAssign && scope[lastAssign[1]] !== undefined) {
-      finalValue = Number(scope[lastAssign[1]]);
-    } else {
-      try {
-        finalValue = Number(limitedEval(lastStep, scope));
-      } catch {
-        console.warn(`${logPrefix} Could not extract final value from last step: "${lastStep}"`);
-        return null;
-      }
-    }
-
-    if (isNaN(finalValue) || !isFinite(finalValue)) {
-      console.warn(`${logPrefix} Computation result is not a valid number: ${finalValue}`);
-      return null;
-    }
-
-    const unitStr = plan.unit.trim();
-    let resultStr: string;
-    if (Number.isInteger(finalValue)) {
-      resultStr = `${finalValue}${unitStr}`;
-    } else {
-      const rounded = parseFloat(finalValue.toPrecision(10));
-      resultStr = `${rounded}${unitStr}`;
-    }
-
-    console.log(`${logPrefix} RESULT: ${resultStr}`);
-    return resultStr;
-  } catch (error: any) {
-    console.warn(`${logPrefix} Computation evaluation failed: ${error.message}`);
-    return null;
-  }
-}
-
 function codeSelectNumericAnswer(
   aiComputedAnswer: string,
   options: string[],
@@ -320,15 +224,13 @@ DO NOT question or change this answer. Just explain WHY it is correct.
 
 INSTRUCTIONS:
 - Write in the SAME language as the question
-- Explain the underlying concept, theory, or principle being tested (e.g., "Newton's Second Law states that F = ma")
-- For math/science: write out the relevant formula/equation first, then substitute values and show every calculation step leading to "${correctAnswer}"
-- For non-math questions: explain WHY the answer is correct by referencing the concept, definition, or rule — not just stating that it is correct
-- For each wrong option, explain the specific misconception, error, or confusion that would lead to choosing it
-- Be thorough and educational — the student should learn something from reading the explanation
+- For math/science: show the full step-by-step calculation that leads to "${correctAnswer}"
+- For each wrong option, explain what specific error or misconception would lead to that value
+- Keep explanations clear and educational
 
 Respond in JSON:
 {
-  "explanation": "Explain the concept/principle, write out the relevant equation or definition, then show the step-by-step reasoning or calculation",
+  "explanation": "Step-by-step explanation of why the correct answer is right",
   "wrongAnswerExplanations": {
     "wrong option text": "why this is incorrect"
   }
@@ -384,6 +286,8 @@ async function codeSelectNumericAnswersFromGeneration(mcQuestions: any[], logPre
     if (!q.correctAnswer || !Array.isArray(q.options) || q.options.length === 0) continue;
 
     const options = q.options.map((o: any) => String(o).trim());
+    const aiComputedValue = q.computedValue ? String(q.computedValue).trim() : "";
+
     const parsedOptions = options.map((opt: string) => ({
       text: opt,
       parsed: parseNumericWithUnit(opt),
@@ -404,33 +308,16 @@ async function codeSelectNumericAnswersFromGeneration(mcQuestions: any[], logPre
       }
     }
 
-    let computedValueStr: string | null = null;
-
-    if (q.computation && typeof q.computation === "object" && Array.isArray(q.computation.steps)) {
-      console.log(`${logPrefix} Evaluating computation plan for "${String(q.question).substring(0, 60)}...":`);
-      computedValueStr = evaluateComputationPlan(q.computation as ComputationPlan, logPrefix);
-      if (computedValueStr) {
-        console.log(`${logPrefix} Code computed: "${computedValueStr}"`);
-      } else {
-        console.warn(`${logPrefix} Computation plan evaluation failed, falling back to AI computedValue`);
-      }
-    }
-
-    if (!computedValueStr && q.computedValue) {
-      computedValueStr = String(q.computedValue).trim();
-      console.log(`${logPrefix} Using AI-provided computedValue as fallback: "${computedValueStr}"`);
-    }
-
-    let targetParsed = computedValueStr ? parseNumericWithUnit(computedValueStr) : null;
+    let targetParsed = aiComputedValue ? parseNumericWithUnit(aiComputedValue) : null;
 
     if (!targetParsed) {
       const currentAnswer = String(q.correctAnswer).trim();
       targetParsed = parseNumericWithUnit(currentAnswer);
       if (targetParsed) {
-        console.log(`${logPrefix} No parseable computed value, using AI's selected answer "${currentAnswer}" → SI: ${targetParsed.siValue} ${targetParsed.siUnit}`);
+        console.log(`${logPrefix} No parseable computedValue "${aiComputedValue}", using AI's selected answer "${currentAnswer}" → SI: ${targetParsed.siValue} ${targetParsed.siUnit}`);
       }
     } else {
-      console.log(`${logPrefix} Computed value: "${computedValueStr}" → ${targetParsed.value} ${targetParsed.unit} → SI: ${targetParsed.siValue} ${targetParsed.siUnit}`);
+      console.log(`${logPrefix} AI computedValue: "${aiComputedValue}" → ${targetParsed.value} ${targetParsed.unit} → SI: ${targetParsed.siValue} ${targetParsed.siUnit}`);
     }
 
     if (!targetParsed) {
@@ -494,7 +381,6 @@ async function codeSelectNumericAnswersFromGeneration(mcQuestions: any[], logPre
 
   for (const q of mcQuestions) {
     delete q.computedValue;
-    delete q.computation;
   }
 }
 
@@ -635,7 +521,7 @@ STEP-BY-STEP PROCESS FOR EACH QUESTION:
 2. Solve it yourself from scratch (do the math, apply the formula, check the facts)
 3. Compare your result against EACH numbered option individually
 4. Set correctAnswerIndex to the INDEX (0, 1, 2, 3) of the option that matches your result
-5. If the answer changed, write a corrected explanation: state the relevant concept/formula, then show the step-by-step reasoning or calculation that leads to the new answer
+5. If the answer changed, write a corrected explanation that supports the new answer
 
 CRITICAL NUMERIC/UNIT RULES:
 - 50g = 0.05kg (NOT 5kg) — always check decimal places and unit conversions
@@ -650,9 +536,9 @@ ${JSON.stringify(verificationItems, null, 2)}
 
 Respond with ONLY a JSON array. For each question:
 - "correctAnswerIndex": the 0-based INDEX of the correct option (0, 1, 2, or 3) — use a NUMBER, not text
-- "computation": for numeric questions, an object with "steps" (array of math expressions using pure numbers, no units) and "unit" (result unit string). Omit for non-numeric questions.
-- "explanation": if changed, write a corrected explanation stating the concept/formula and step-by-step reasoning; if unchanged, copy the original
-[{"index": 0, "correctAnswerIndex": 2, "computation": {"steps": ["x = 5 * 0.01"], "unit": "kg"}, "explanation": "why correct"}, ...]`;
+- "computedValue": your independently computed answer as a string with the number and unit (e.g., "0.05kg", "3600s", "9.8m/s"). For non-numeric questions, use "".
+- "explanation": if changed, a corrected explanation; if unchanged, copy the original
+[{"index": 0, "correctAnswerIndex": 2, "computedValue": "0.05kg", "explanation": "why correct"}, ...]`;
 
     const verifyResponse = await pRetry(
       async () => {
@@ -679,12 +565,9 @@ Respond with ONLY a JSON array. For each question:
         const options = q.options.map((o: any) => String(o).trim());
         const markedCorrect = String(q.correctAnswer).trim();
 
-        if (v.computation && typeof v.computation === "object" && Array.isArray(v.computation.steps)) {
-          const computedResult = evaluateComputationPlan(v.computation as ComputationPlan, `${logPrefix} COMPUTE`);
-          if (computedResult) {
-            q._aiComputedValue = computedResult;
-            console.log(`${logPrefix} Question "${String(q.question).substring(0, 60)}..." — code computed: "${computedResult}"`);
-          }
+        if (v.computedValue && typeof v.computedValue === "string" && v.computedValue.trim().length > 0) {
+          q._aiComputedValue = v.computedValue.trim();
+          console.log(`${logPrefix} Question "${String(q.question).substring(0, 60)}..." — AI computed value: "${q._aiComputedValue}"`);
         }
 
         if (v.correctAnswerIndex !== undefined) {
@@ -785,8 +668,8 @@ REQUIREMENTS:
 3. Do NOT generate any question type that is not listed above. If only one type is specified, ALL questions MUST be that type.
 4. Distribute question types roughly evenly among the selected types
 5. DIFFICULTY LEVEL: ${difficulty.toUpperCase()} - ${difficultyDescriptions[difficulty]}
-6. Include a thorough explanation: state the relevant concept, principle, or definition first, then show the reasoning or calculation that leads to the correct answer
-7. For multiple choice, include explanations for why EACH wrong answer is incorrect — identify the specific misconception or error
+6. Include an explanation for why the correct answer is right
+7. For multiple choice, include explanations for why EACH wrong answer is incorrect
 8. For multiple choice, always provide exactly 4 options
 9. CATEGORY: Assign exactly ONE category from: ${categoryList}
    - Math: arithmetic, algebra, geometry, calculus, statistics, etc.
@@ -826,10 +709,10 @@ ANSWER LENGTH BALANCING (EXTREMELY IMPORTANT - FOLLOW STRICTLY):
 QUESTION GENERATION FLOW (MANDATORY - follow this exact order for each question):
 - Step 1: Write the question text
 - Step 2: Generate the answer options
-- Step 3: For math/science/numeric questions: Break down the solution into computation steps — a series of mathematical expressions the system will evaluate. Do NOT compute the final answer yourself; instead provide the formulas/expressions. Include the result unit in "computation".
+- Step 3: For math/science/numeric questions: SOLVE the problem yourself step-by-step to get the raw numeric result with units (e.g., "0.05kg", "3600s", "9.8m/s²"). Put this in "computedValue".
 - Step 4: DECIDE which option is the correct answer and set "correctAnswerIndex"
-- Step 5: Write "explanation" — first state the concept/principle/formula being tested, then walk through the reasoning or calculation step-by-step. The student should understand the "why" behind the answer, not just the answer itself.
-- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, identify the specific misconception, common mistake, or error that leads to it
+- Step 5: Write "explanation" to explain why correctAnswer is right (for math/science, show the full calculation)
+- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake
 
 SELF-CONSISTENCY CHECK: The explanation MUST support the correctAnswer you already chose. If you realize during explanation that a different option is actually correct, go back and fix the correctAnswer BEFORE writing the explanation.
 
@@ -844,8 +727,8 @@ OUTPUT FORMAT (JSON):
       "options": ["Option with similar length", "Option with similar length", "Option with similar length", "Option with similar length"],
       "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text. For true_false: use correctAnswerIndex (0 for True, 1 for False).",
-      "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-      "explanation": "State the concept/principle/formula, then show step-by-step reasoning or calculation. Be explicit and educational.",
+      "computedValue": "Your raw computed answer with units for numeric questions, e.g. '0.05kg', '3600s'. Empty string for non-numeric.",
+      "explanation": "Why the correct option is right. For math/science: show full calculation.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
         "Wrong option 2 text": "The specific mistake that leads to this wrong value",
@@ -855,15 +738,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-COMPUTATION FIELD (MANDATORY for math/science/numeric questions):
-For questions requiring calculation, provide a "computation" object:
-- "steps": Array of math expressions. Use standard notation: +, -, *, /, ^, sqrt(), sin(), cos(), tan(), log(), abs(), pi, e. Variable names must be simple identifiers. Do NOT include units in expressions — only pure numbers and math.
-- "unit": The unit of the final result (e.g., "kg", "m/s", "N", "J")
-Example: Force = mass * acceleration: { "steps": ["mass = 5", "accel = 9.8", "force = mass * accel"], "unit": "N" }
-Example: Kinetic energy: { "steps": ["m = 2", "v = 3", "KE = 0.5 * m * v^2"], "unit": "J" }
-For non-numeric questions, omit the "computation" field.
-
-IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, the options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computation" with steps and unit.
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, the options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computedValue" with your raw calculated result.
 
 Respond with ONLY valid JSON, no markdown or additional text.`;
 
@@ -892,8 +767,8 @@ REQUIREMENTS:
 3. Do NOT generate any question type that is not listed above. If only one type is specified, ALL questions MUST be that type.
 4. Distribute question types roughly evenly among the selected types
 5. DIFFICULTY LEVEL: ${difficulty.toUpperCase()} - ${difficultyDescriptions[difficulty]}
-6. Include a thorough explanation: state the relevant concept, principle, or definition first, then show the reasoning or calculation that leads to the correct answer
-7. For multiple choice, include explanations for why EACH wrong answer is incorrect — identify the specific misconception or error
+6. Include an explanation for why the correct answer is right
+7. For multiple choice, include explanations for why EACH wrong answer is incorrect
 8. For multiple choice, always provide exactly 4 options labeled A, B, C, D
 9. At least 30% of questions should be based on or reference the visual content (charts, diagrams, images)
 10. For questions that reference a specific image, include the imageIndex (0-based index of the attached image)
@@ -935,10 +810,10 @@ ANSWER LENGTH BALANCING (EXTREMELY IMPORTANT - FOLLOW STRICTLY):
 QUESTION GENERATION FLOW (MANDATORY - follow this exact order for each question):
 - Step 1: Write the question text
 - Step 2: Generate the answer options
-- Step 3: For math/science/numeric questions: Break down the solution into computation steps — a series of mathematical expressions the system will evaluate. Do NOT compute the final answer yourself; instead provide the formulas/expressions. Include the result unit in "computation".
+- Step 3: For math/science/numeric questions: SOLVE the problem yourself step-by-step to get the raw numeric result with units (e.g., "0.05kg", "3600s", "9.8m/s²"). Put this in "computedValue".
 - Step 4: DECIDE which option is the correct answer and set "correctAnswerIndex"
-- Step 5: Write "explanation" — first state the concept/principle/formula being tested, then walk through the reasoning or calculation step-by-step. The student should understand the "why" behind the answer, not just the answer itself.
-- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, identify the specific misconception, common mistake, or error that leads to it
+- Step 5: Write "explanation" to explain why correctAnswer is right (for math/science, show the full calculation)
+- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake
 
 SELF-CONSISTENCY CHECK: The explanation MUST support the correctAnswer you already chose. If you realize during explanation that a different option is actually correct, go back and fix the correctAnswer BEFORE writing the explanation.
 
@@ -953,8 +828,8 @@ OUTPUT FORMAT (JSON):
       "options": ["Option with similar length", "Option with similar length", "Option with similar length", "Option with similar length"],
       "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text",
-      "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-      "explanation": "State the concept/principle/formula, then show step-by-step reasoning or calculation. Be explicit and educational.",
+      "computedValue": "Your raw computed answer with units for numeric questions, e.g. '0.05kg', '3600s'. Empty string for non-numeric.",
+      "explanation": "Why the correct option is right. For math/science: show full calculation.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
         "Wrong option 2 text": "The specific mistake that leads to this wrong value",
@@ -965,14 +840,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-COMPUTATION FIELD (MANDATORY for math/science/numeric questions):
-For questions requiring calculation, provide a "computation" object:
-- "steps": Array of math expressions. Use standard notation: +, -, *, /, ^, sqrt(), sin(), cos(), tan(), log(), abs(), pi, e. Variable names must be simple identifiers. Do NOT include units in expressions — only pure numbers and math.
-- "unit": The unit of the final result (e.g., "kg", "m/s", "N", "J")
-Example: Force = mass * acceleration: { "steps": ["mass = 5", "accel = 9.8", "force = mass * accel"], "unit": "N" }
-For non-numeric questions, omit the "computation" field.
-
-IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computation" with steps and unit.
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computedValue" with your raw calculated result.
 
 Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
 
@@ -1002,8 +870,8 @@ REQUIREMENTS:
 3. Do NOT generate any question type that is not listed above. If only one type is specified, ALL questions MUST be that type.
 4. Distribute question types roughly evenly among the selected types
 5. DIFFICULTY LEVEL: ${difficulty.toUpperCase()} - ${difficultyDescriptions[difficulty]}
-6. Include a thorough explanation: state the relevant concept, principle, or definition first, then show the reasoning or calculation that leads to the correct answer
-7. For multiple choice, include explanations for why EACH wrong answer is incorrect — identify the specific misconception or error
+6. Include an explanation for why the correct answer is right
+7. For multiple choice, include explanations for why EACH wrong answer is incorrect
 8. For multiple choice, always provide exactly 4 options
 9. ALL questions should be based on the visual content
 10. For questions that reference a specific image, include the imageIndex (0-based index of the attached image)
@@ -1045,10 +913,10 @@ ANSWER LENGTH BALANCING (EXTREMELY IMPORTANT - FOLLOW STRICTLY):
 QUESTION GENERATION FLOW (MANDATORY - follow this exact order for each question):
 - Step 1: Write the question text
 - Step 2: Generate the answer options
-- Step 3: For math/science/numeric questions: Break down the solution into computation steps — a series of mathematical expressions the system will evaluate. Do NOT compute the final answer yourself; instead provide the formulas/expressions. Include the result unit in "computation".
+- Step 3: For math/science/numeric questions: SOLVE the problem yourself step-by-step to get the raw numeric result with units (e.g., "0.05kg", "3600s", "9.8m/s²"). Put this in "computedValue".
 - Step 4: DECIDE which option is the correct answer and set "correctAnswerIndex"
-- Step 5: Write "explanation" — first state the concept/principle/formula being tested, then walk through the reasoning or calculation step-by-step. The student should understand the "why" behind the answer, not just the answer itself.
-- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, identify the specific misconception, common mistake, or error that leads to it
+- Step 5: Write "explanation" to explain why correctAnswer is right (for math/science, show the full calculation)
+- Step 6: Write "wrongAnswerExplanations" — for EACH wrong option, explain the specific mistake
 
 SELF-CONSISTENCY CHECK: The explanation MUST support the option at correctAnswerIndex. If you realize during explanation that a different option is actually correct, go back and fix the correctAnswerIndex BEFORE writing the explanation.
 
@@ -1063,8 +931,8 @@ OUTPUT FORMAT (JSON):
       "options": ["Option with similar length", "Option with similar length", "Option with similar length", "Option with similar length"],
       "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text",
-      "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-      "explanation": "State the concept/principle/formula, then show step-by-step reasoning or calculation. Be explicit and educational.",
+      "computedValue": "Your raw computed answer with units for numeric questions, e.g. '0.05kg', '3600s'. Empty string for non-numeric.",
+      "explanation": "Why the correct option is right. For math/science: show full calculation.",
       "wrongAnswerExplanations": {
         "Wrong option 1 text": "The specific mistake that leads to this wrong value",
         "Wrong option 2 text": "The specific mistake that leads to this wrong value",
@@ -1075,14 +943,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-COMPUTATION FIELD (MANDATORY for math/science/numeric questions):
-For questions requiring calculation, provide a "computation" object:
-- "steps": Array of math expressions. Use standard notation: +, -, *, /, ^, sqrt(), sin(), cos(), tan(), log(), abs(), pi, e. Variable names must be simple identifiers. Do NOT include units in expressions — only pure numbers and math.
-- "unit": The unit of the final result (e.g., "kg", "m/s", "N", "J")
-Example: Force = mass * acceleration: { "steps": ["mass = 5", "accel = 9.8", "force = mass * accel"], "unit": "N" }
-For non-numeric questions, omit the "computation" field.
-
-IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computation" with steps and unit.
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number) instead of "correctAnswer" text. For true_false questions, options MUST be ["True", "False"] and correctAnswerIndex MUST be 0 (True) or 1 (False). For short_answer, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computedValue" with your raw calculated result.
 
 Respond with ONLY valid JSON, no markdown or additional text.`;
 
@@ -1355,8 +1216,8 @@ export async function importExistingQuiz(
 Your task is to:
 1. Parse and extract ALL existing questions from the content
 2. Identify the correct answer for each question using your knowledge
-3. Provide a thorough explanation for each answer: state the relevant concept, principle, or formula, then show the reasoning or calculation
-4. For each WRONG answer option, explain the specific misconception or error that makes it incorrect
+3. Provide a brief explanation for why each answer is correct
+4. For each WRONG answer option, provide a brief explanation of why it is incorrect
 5. Generate a short, descriptive title (max 6 words) for this quiz.
 
 CONTENT:
@@ -1374,8 +1235,8 @@ FACTUAL ACCURACY AND SELF-CONSISTENCY (HIGHEST PRIORITY - FOLLOW STRICTLY):
 - For math/science: work through all calculations, unit conversions, and formulas step by step FIRST, arrive at the result, THEN set correctAnswer to the option matching your result
 - SELF-CHECK (MANDATORY): After writing each question, re-read your own explanation. The value/conclusion in the explanation MUST match the correctAnswer field EXACTLY. If your explanation derives "0.05kg" then correctAnswer MUST be "0,05kg" or "0.05kg" — NEVER a different value. Fix any mismatch before moving on.
 - NEVER mark a wrong answer as correct. If uncertain, use the most defensible and commonly accepted answer
-- The explanation must explicitly teach the concept: state the relevant principle, law, definition, or formula first, then walk through the reasoning or calculation that leads to the correct answer. Students should learn from the explanation.
-- wrongAnswerExplanations: for EACH wrong option, identify the specific misconception, calculation error, or misunderstanding that would lead to choosing it (e.g., "This results from forgetting to convert grams to kilograms — applying F = ma with mass in grams gives 50 instead of 0.05"). Do NOT just restate the correct answer.
+- The explanation must clearly and logically justify why the correct answer is right
+- wrongAnswerExplanations: for EACH wrong option, explain specifically why that value is wrong (e.g., "This is off by a factor of 100 due to a unit conversion error"). Do NOT just restate the correct answer.
 ${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 
 IMPORTANT INSTRUCTIONS:
@@ -1399,8 +1260,8 @@ OUTPUT FORMAT (JSON):
       "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
       "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text",
-      "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-      "explanation": "State the concept/principle/formula, then walk through the reasoning or calculation. Be explicit and educational.",
+      "computedValue": "Your raw computed answer with units for numeric questions, e.g. '0.05kg', '3600s'. Empty string for non-numeric.",
+      "explanation": "Brief explanation of why this is the correct answer",
       "wrongAnswerExplanations": {
         "Option 1": "Why this option is incorrect",
         "Option 2": "Why this option is incorrect"
@@ -1409,14 +1270,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-COMPUTATION FIELD (for math/science/numeric questions):
-For questions requiring calculation, provide a "computation" object:
-- "steps": Array of math expressions. Use standard notation: +, -, *, /, ^, sqrt(), sin(), cos(), tan(), log(), abs(), pi, e. Do NOT include units in expressions — only pure numbers and math.
-- "unit": The unit of the final result (e.g., "kg", "m/s", "N", "J")
-Example: { "steps": ["mass = 5", "accel = 9.8", "force = mass * accel"], "unit": "N" }
-For non-numeric questions, omit the "computation" field.
-
-IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number 0-3) instead of "correctAnswer" text. For short_answer questions, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computation" with steps and unit.
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number 0-3) instead of "correctAnswer" text. For short_answer questions, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computedValue" with your raw calculated result.
 
 Respond with ONLY valid JSON, no markdown or additional text.`;
 
@@ -1426,8 +1280,8 @@ Your task is to:
 1. Parse and extract ALL existing questions from BOTH the text content AND the attached images
 2. Questions may appear in the images - extract those too
 3. Identify the correct answer for each question using your knowledge
-4. Provide a thorough explanation for each answer: state the relevant concept, principle, or formula, then show the reasoning or calculation
-5. For each WRONG answer option, explain the specific misconception or error that makes it incorrect
+4. Provide a brief explanation for why each answer is correct
+5. For each WRONG answer option, provide a brief explanation of why it is incorrect
 6. Generate a short, descriptive title (max 6 words) for this quiz.
 
 TEXT CONTENT:
@@ -1443,8 +1297,8 @@ FACTUAL ACCURACY AND SELF-CONSISTENCY (HIGHEST PRIORITY - FOLLOW STRICTLY):
 - For math/science: work through all calculations, unit conversions, and formulas step by step FIRST, arrive at the result, THEN set correctAnswer to the option matching your result
 - SELF-CHECK (MANDATORY): After writing each question, re-read your own explanation. The value/conclusion in the explanation MUST match the correctAnswer field EXACTLY. If your explanation derives "0.05kg" then correctAnswer MUST be "0,05kg" or "0.05kg" — NEVER a different value. Fix any mismatch before moving on.
 - NEVER mark a wrong answer as correct. If uncertain, use the most defensible and commonly accepted answer
-- The explanation must explicitly teach the concept: state the relevant principle, law, definition, or formula first, then walk through the reasoning or calculation that leads to the correct answer. Students should learn from the explanation.
-- wrongAnswerExplanations: for EACH wrong option, identify the specific misconception, calculation error, or misunderstanding that would lead to choosing it (e.g., "This results from forgetting to convert grams to kilograms — applying F = ma with mass in grams gives 50 instead of 0.05"). Do NOT just restate the correct answer.
+- The explanation must clearly and logically justify why the correct answer is right
+- wrongAnswerExplanations: for EACH wrong option, explain specifically why that value is wrong (e.g., "This is off by a factor of 100 due to a unit conversion error"). Do NOT just restate the correct answer.
 ${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 
 IMPORTANT INSTRUCTIONS:
@@ -1467,8 +1321,8 @@ OUTPUT FORMAT (JSON):
       "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
       "correctAnswerIndex": 0,
       "correctAnswer": "Only for short_answer type - the answer text",
-      "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-      "explanation": "State the concept/principle/formula, then walk through the reasoning or calculation. Be explicit and educational.",
+      "computedValue": "Your raw computed answer with units for numeric questions, e.g. '0.05kg', '3600s'. Empty string for non-numeric.",
+      "explanation": "Brief explanation of why this is the correct answer",
       "wrongAnswerExplanations": {
         "Option 1": "Why this option is incorrect",
         "Option 2": "Why this option is incorrect"
@@ -1477,14 +1331,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-COMPUTATION FIELD (for math/science/numeric questions):
-For questions requiring calculation, provide a "computation" object:
-- "steps": Array of math expressions. Use standard notation: +, -, *, /, ^, sqrt(), sin(), cos(), tan(), log(), abs(), pi, e. Do NOT include units in expressions — only pure numbers and math.
-- "unit": The unit of the final result (e.g., "kg", "m/s", "N", "J")
-Example: { "steps": ["mass = 5", "accel = 9.8", "force = mass * accel"], "unit": "N" }
-For non-numeric questions, omit the "computation" field.
-
-IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number 0-3) instead of "correctAnswer" text. For short_answer questions, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computation" with steps and unit.
+IMPORTANT: For multiple_choice and true_false questions, use "correctAnswerIndex" (a number 0-3) instead of "correctAnswer" text. For short_answer questions, use "correctAnswer" text. For math/science questions with numeric answers, ALWAYS include "computedValue" with your raw calculated result.
 
 Respond with ONLY valid JSON, no markdown or additional text.` : prompt;
 
@@ -1840,8 +1687,8 @@ export async function reviseQuizQuestions(params: {
               systemPrompt = `You are an expert quiz question writer and verifier. Your job is to revise a quiz question by:
 1. Rewriting the question to be clearer and more precise (keep same language)
 2. SOLVING the problem independently step-by-step to determine the correct answer
-3. Writing a thorough explanation: state the relevant concept, principle, definition, or formula first, then walk through the complete solution step-by-step. The student should understand the "why" behind the answer.
-4. For each wrong answer, explaining the specific misconception or error that leads to it
+3. Writing a thorough explanation showing the full solution process
+4. Generating explanations for why each wrong answer is incorrect
 
 CRITICAL RULES:
 - LANGUAGE: Write ALL output in the SAME language as the original question
@@ -1856,16 +1703,14 @@ Respond in valid JSON:
 {
   "question": "revised question text (SAME LANGUAGE as original)",
   "correctAnswerIndex": 0,
-  "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-  "explanation": "State the concept/principle/formula, then show step-by-step solution. Be explicit and educational.",
+  "explanation": "step-by-step solution showing how you arrived at the answer",
   "optionExplanations": {
     "0": "why option 0 is correct/incorrect",
     "1": "why option 1 is correct/incorrect",
     "2": "why option 2 is correct/incorrect",
     "3": "why option 3 is correct/incorrect"
   }
-}
-For math/science/numeric questions, provide a "computation" object with "steps" (array of math expressions) and "unit" (the result unit). Steps should use pure numbers and standard math notation (+, -, *, /, ^, sqrt(), sin(), cos(), tan(), log(), abs(), pi, e). No units inside expressions. For non-numeric questions, omit "computation".`;
+}`;
               
               userPrompt = `Revise this question. IMPORTANT: Keep everything in the same language as the original question.
 
@@ -1898,16 +1743,15 @@ ${SI_UNIT_NORMALIZATION_INSTRUCTIONS}
 Respond in valid JSON:
 {
   "correctAnswerIndex": 0,
-  "computation": { "steps": ["var1 = 10", "var2 = 20", "result = var1 * var2"], "unit": "N" },
-  "explanation": "State the concept/principle/formula, then show step-by-step solution. Be explicit and educational.",
+  "computedValue": "Your raw computed answer with units for numeric questions, e.g. '0.05kg', '3600s'. Empty string for non-numeric.",
+  "explanation": "step-by-step solution showing how you arrived at the answer",
   "optionExplanations": {
     "0": "why option 0 is correct/incorrect",
     "1": "why option 1 is correct/incorrect",
     "2": "why option 2 is correct/incorrect",
     "3": "why option 3 is correct/incorrect"
   }
-}
-For math/science/numeric questions, provide a "computation" object with "steps" (array of math expressions) and "unit" (the result unit). Steps should use pure numbers and standard math notation (+, -, *, /, ^, sqrt(), sin(), cos(), tan(), log(), abs(), pi, e). No units inside expressions. For non-numeric questions, omit "computation".`;
+}`;
               
               userPrompt = `Determine the correct answer for this question. IMPORTANT: Keep everything in the same language as the original question.
 
@@ -2004,29 +1848,22 @@ IMPORTANT: Return correctAnswerIndex as a NUMBER (0, 1, 2, or 3), not the option
 
             let codeChangedAnswer = false;
             if (hasOptions && hasNumericOptions(q.options!)) {
-              let codeComputedVal: string | null = null;
-
-              if (parsed.computation && typeof parsed.computation === "object" && Array.isArray(parsed.computation.steps)) {
-                console.log(`[AI REVISE] Q${idx + 1}: Evaluating computation plan...`);
-                codeComputedVal = evaluateComputationPlan(parsed.computation as ComputationPlan, `[AI REVISE COMPUTE Q${idx + 1}]`);
-              }
-
-              const targetVal = codeComputedVal || resolvedAnswer;
+              const aiComputedVal = parsed.computedValue ? String(parsed.computedValue).trim() : resolvedAnswer;
               const codeResult = codeSelectNumericAnswer(
-                targetVal,
+                aiComputedVal,
                 q.options!.map((o: string) => String(o)),
                 resolvedAnswer
               );
               if (codeResult) {
                 if (codeResult.wasChanged) {
-                  console.warn(`[AI REVISE CODE-SELECT] Q${idx + 1}: Code selected "${codeResult.selectedAnswer}" (AI chose "${resolvedAnswer}", computed: "${targetVal}")`);
+                  console.warn(`[AI REVISE CODE-SELECT] Q${idx + 1}: Code selected "${codeResult.selectedAnswer}" (AI chose "${resolvedAnswer}", computedValue: "${aiComputedVal}")`);
                   resolvedAnswer = codeResult.selectedAnswer;
                   codeChangedAnswer = true;
                 } else {
                   console.log(`[AI REVISE CODE-SELECT] Q${idx + 1}: Code confirmed "${resolvedAnswer}"`);
                 }
               } else {
-                console.warn(`[AI REVISE CODE-SELECT] Q${idx + 1}: Could not parse computed value "${targetVal}" — keeping AI selection`);
+                console.warn(`[AI REVISE CODE-SELECT] Q${idx + 1}: Could not parse computedValue "${aiComputedVal}" — keeping AI selection`);
               }
             }
 
